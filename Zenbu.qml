@@ -5,6 +5,7 @@ import QtQuick
 
 import qs.Commons
 import qs.Ui
+import "."
 
 // Zenbu (全部, "everything"): one overlay, six tabs — Apps, Emoji, Files,
 // Calc, Windows, SSH. Type to filter the current tab, Tab to cycle tabs,
@@ -73,14 +74,101 @@ Item {
       root.sizeFile, root.cardWidth + "x" + root.cardHeight])
   }
 
+  // ------------------------------------------------------------- settings
+  // User choices, made in the greeter (first run) or the ⚙ settings view:
+  // how Zenbu appears (centered pop-up or dropdown from the bar icon),
+  // whether the bar icon is shown, and the summon hotkey. Applying a choice
+  // is the ONLY time Zenbu touches bindings.lua (its own marked block, via
+  // zenbu-ctl.sh) or the bar layout — never on its own.
+  readonly property string pluginDir: {
+    var u = String(Qt.resolvedUrl("."))
+    return decodeURIComponent(u.replace(/^file:\/\//, "")).replace(/\/$/, "")
+  }
+  readonly property string settingsFile: root.home + "/.local/state/zenbu/settings.json"
+  property var zsettings: ({ greeted: false, mode: "center", barIcon: false, barSection: "right", shortcut: "", emojiAction: "both" })
+  readonly property bool dropdown: zsettings.mode === "dropdown"
+
+  // "list" is the launcher; "greeter" shows on first run; "settings" via ⚙.
+  property string view: "list"
+  property real anchorX: -1
+
+  property string draftMode: "center"
+  property bool draftBarIcon: false
+  property string draftBarSection: "right"
+  property string draftEmojiAction: "both"
+  property string draftShortcut: ""
+  property bool capturing: false
+  property string captureNote: ""
+
+  function saveSettings() {
+    Quickshell.execDetached(["bash", "-c",
+      'mkdir -p "$(dirname "$2")" && printf "%s\\n" "$1" > "$2"', "--",
+      JSON.stringify(root.zsettings), root.settingsFile])
+  }
+
+  function syncDrafts() {
+    root.draftMode = root.zsettings.mode || "center"
+    root.draftBarIcon = root.zsettings.barIcon === true
+    root.draftBarSection = root.zsettings.barSection || "right"
+    root.draftEmojiAction = root.zsettings.emojiAction || "both"
+    root.draftShortcut = root.zsettings.shortcut || ""
+    root.capturing = false
+    root.captureNote = ""
+  }
+
+  function applyDrafts() {
+    if (root.draftMode === "dropdown") root.draftBarIcon = true
+    var s = {
+      greeted: true,
+      mode: root.draftMode,
+      barIcon: root.draftBarIcon,
+      barSection: root.draftBarSection,
+      emojiAction: root.draftEmojiAction,
+      shortcut: root.draftShortcut
+    }
+    root.zsettings = s
+    root.saveSettings()
+    Quickshell.execDetached(["bash", root.pluginDir + "/zenbu-ctl.sh", "bar",
+                             s.barIcon ? "on" : "off", s.barSection])
+    if (s.shortcut) Quickshell.execDetached(["bash", root.pluginDir + "/zenbu-ctl.sh", "bind", s.shortcut])
+    else Quickshell.execDetached(["bash", root.pluginDir + "/zenbu-ctl.sh", "unbind"])
+    root.view = "list"
+    root.rebuild()
+  }
+
+  function captureKey(event) {
+    if (event.key === Qt.Key_Escape) { root.capturing = false; root.captureNote = ""; return }
+    var mods = []
+    if (event.modifiers & Qt.MetaModifier) mods.push("SUPER")
+    if (event.modifiers & Qt.ControlModifier) mods.push("CTRL")
+    if (event.modifiers & Qt.AltModifier) mods.push("ALT")
+    if (event.modifiers & Qt.ShiftModifier) mods.push("SHIFT")
+    var name = ""
+    if (event.key >= Qt.Key_A && event.key <= Qt.Key_Z) name = String.fromCharCode(65 + (event.key - Qt.Key_A))
+    else if (event.key >= Qt.Key_0 && event.key <= Qt.Key_9) name = String.fromCharCode(48 + (event.key - Qt.Key_0))
+    else if (event.key >= Qt.Key_F1 && event.key <= Qt.Key_F12) name = "F" + (event.key - Qt.Key_F1 + 1)
+    if (name === "") return
+    if (mods.length === 0) { root.captureNote = "Add a modifier — SUPER, CTRL or ALT"; return }
+    root.draftShortcut = mods.join(" + ") + " + " + name
+    root.captureNote = ""
+    root.capturing = false
+  }
+
   // -------------------------------------------------------------- lifecycle
   function open(payloadJson) {
     root.opened = true
     root.filterText = ""
     root.selectedIndex = 0
+    root.view = root.zsettings.greeted === true ? "list" : "greeter"
+    if (root.view === "greeter") root.syncDrafts()
     if (root.shell && root.shell.appLibrary) root.shell.appLibrary.refreshIcons()
     root.rebuild()
     Qt.callLater(function() { keyCatcher.forceActiveFocus() })
+  }
+
+  function openAt(x) {
+    root.anchorX = x
+    root.open("{}")
   }
 
   function close() { root.opened = false }
@@ -164,7 +252,8 @@ Item {
           sub: "",
           icon: "",
           glyph: item.e,
-          hint: "type it",
+          hint: (root.zsettings.emojiAction || "both") === "copy" ? "copy"
+            : (root.zsettings.emojiAction || "both") === "type" ? "type it" : "type + copy",
           emoji: item.e
         })
       }
@@ -225,7 +314,19 @@ Item {
       if (lib) lib.launch(row.appId, row.label)
     } else if (row.emoji !== undefined) {
       root.dismiss()
-      Quickshell.execDetached([root.omarchyPath + "/bin/omarchy-menu-emoji-insert", row.emoji])
+      // Per the emoji-action setting: type it into the app you came from,
+      // leave it on the clipboard, or both (sequential — the inserter's own
+      // clipboard use is temporary and cleared, so the copy comes after).
+      var act = root.zsettings.emojiAction || "both"
+      if (act === "copy") {
+        Quickshell.execDetached(["wl-copy", row.emoji])
+      } else if (act === "type") {
+        Quickshell.execDetached([root.omarchyPath + "/bin/omarchy-menu-emoji-insert", row.emoji])
+      } else {
+        Quickshell.execDetached(["bash", "-c",
+          '"$1" "$2"; sleep 0.1; printf %s "$2" | wl-copy', "--",
+          root.omarchyPath + "/bin/omarchy-menu-emoji-insert", row.emoji])
+      }
     } else if (row.path !== undefined) {
       root.dismiss()
       Quickshell.execDetached(["xdg-open", row.path])
@@ -255,7 +356,22 @@ Item {
     listView.positionViewAtIndex(root.selectedIndex, ListView.Contain)
   }
 
+  Component.onCompleted: ZenbuState.overlay = root
+
   // ------------------------------------------------------------ data feeds
+  FileView {
+    path: root.settingsFile
+    printErrors: false
+    watchChanges: true
+    onLoaded: {
+      try {
+        var s = JSON.parse(text())
+        if (s && typeof s === "object") root.zsettings = s
+      } catch (e) {}
+    }
+    onFileChanged: reload()
+  }
+
   FileView {
     path: root.sizeFile
     printErrors: false
@@ -398,8 +514,11 @@ Item {
     onPositionChanged: function(mouse) {
       if (!pressed) return
       var g = mapToItem(null, mouse.x, mouse.y)
+      // Centered card grows both ways per pixel dragged; the top-anchored
+      // dropdown only grows downward, so it tracks the pointer 1:1.
+      var fy = root.dropdown ? 1 : 2
       if (edgeX !== 0) root.userWidth = startW + 2 * edgeX * (g.x - startGX)
-      if (edgeY !== 0) root.userHeight = startH + 2 * edgeY * (g.y - startGY)
+      if (edgeY !== 0) root.userHeight = startH + fy * edgeY * (g.y - startGY)
     }
     onReleased: root.saveSize()
   }
@@ -414,7 +533,7 @@ Item {
     WlrLayershell.keyboardFocus: WlrKeyboardFocus.Exclusive
     exclusionMode: ExclusionMode.Ignore
 
-    Rectangle { anchors.fill: parent; color: root.scrim }
+    Rectangle { anchors.fill: parent; color: root.dropdown ? "transparent" : root.scrim }
 
     MouseArea { anchors.fill: parent; onClicked: root.dismiss() }
 
@@ -423,7 +542,31 @@ Item {
       width: root.cardWidth
       height: root.cardHeight
       radius: root.cornerRadius
-      anchors.centerIn: parent
+      // Centered pop-up by default; the dropdown state re-anchors the card
+      // under the bar icon. AnchorChanges is the only reliable way to switch
+      // anchor layouts — a ternary returning undefined leaves the old anchor
+      // active, silently overriding x.
+      anchors.horizontalCenter: parent.horizontalCenter
+      anchors.verticalCenter: parent.verticalCenter
+
+      states: State {
+        name: "dropdown"
+        when: root.dropdown
+
+        AnchorChanges {
+          target: card
+          anchors.horizontalCenter: undefined
+          anchors.verticalCenter: undefined
+          anchors.top: card.parent.top
+        }
+
+        PropertyChanges {
+          target: card
+          anchors.topMargin: Style.space(46)
+          x: Math.max(Style.gapsOut, Math.min(panel.width - card.width - Style.gapsOut,
+               (root.anchorX >= 0 ? root.anchorX : panel.width / 2) - card.width / 2))
+        }
+      }
       color: root.background
       borderSpec: root.borderSpec
       padding: root.contentMargin
@@ -437,6 +580,21 @@ Item {
 
         Keys.priority: Keys.BeforeItem
         Keys.onPressed: function(event) {
+          if (root.capturing) {
+            root.captureKey(event)
+            event.accepted = true
+            return
+          }
+          if (root.view !== "list") {
+            if (event.key === Qt.Key_Escape) {
+              if (root.view === "settings") root.view = "list"
+              else root.dismiss()
+            } else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
+              root.applyDrafts()
+            }
+            event.accepted = true
+            return
+          }
           if (event.key === Qt.Key_Escape) {
             if (root.filterText) root.setFilter("")
             else root.dismiss()
@@ -489,6 +647,7 @@ Item {
         // Tab strip
         Row {
           id: tabStrip
+          visible: root.view === "list"
           width: parent.width
           spacing: Style.space(4)
 
@@ -525,6 +684,7 @@ Item {
 
         // Search line
         Text {
+          visible: root.view === "list"
           width: parent.width
           text: root.filterText || root.tabs[root.tabIndex].placeholder
           color: root.foreground
@@ -534,12 +694,16 @@ Item {
           elide: Text.ElideRight
         }
 
-        Rectangle { width: parent.width; height: 1; color: root.border; opacity: 0.6 }
+        Rectangle {
+          visible: root.view === "list"
+          width: parent.width; height: 1; color: root.border; opacity: 0.6
+        }
 
         // Result list
         Item {
+          visible: root.view === "list"
           width: parent.width
-          height: parent.height - y
+          height: parent.height - y - footerRow.height - parent.spacing
 
           ListView {
             id: listView
@@ -645,6 +809,361 @@ Item {
             opacity: 0.6
             font.family: root.fontFamily
             font.pixelSize: Style.font.title
+          }
+        }
+
+        // Greeter (first run) and settings (⚙) share one form.
+        Item {
+          visible: root.view !== "list"
+          width: parent.width
+          height: parent.height - y - footerRow.height - parent.spacing
+
+          Column {
+            width: parent.width
+            spacing: Style.spacing.md
+
+            Text {
+              width: parent.width
+              text: root.view === "greeter" ? "全部 · welcome to Zenbu" : "Zenbu settings"
+              color: root.foreground
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.heading
+            }
+
+            Text {
+              visible: root.view === "greeter"
+              width: parent.width
+              wrapMode: Text.WordWrap
+              text: "Apps, emoji, files, calculator, windows and SSH — one overlay. Choose how you want to summon it. Everything here can be changed later from the ⚙ in the corner."
+              color: root.foreground
+              opacity: 0.75
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.body
+            }
+
+            Row {
+              width: parent.width
+              spacing: Style.spacing.md
+
+              Text {
+                anchors.verticalCenter: parent.verticalCenter
+                text: "Hotkey"
+                color: root.foreground
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.title
+              }
+
+              Rectangle {
+                width: Style.space(180)
+                height: Style.space(30)
+                radius: root.cornerRadius
+                color: "transparent"
+                border.color: root.border
+                border.width: 1
+
+                Text {
+                  anchors.centerIn: parent
+                  text: root.capturing ? "press your keys…"
+                    : (root.draftShortcut !== "" ? root.draftShortcut : "none set")
+                  color: root.foreground
+                  opacity: root.capturing || root.draftShortcut === "" ? 0.6 : 1
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.body
+                }
+              }
+
+              Rectangle {
+                width: recordLabel.width + Style.spacing.md * 2
+                height: Style.space(30)
+                radius: root.cornerRadius
+                color: root.selectedBackground
+
+                Text {
+                  id: recordLabel
+                  anchors.centerIn: parent
+                  text: root.capturing ? "cancel" : "record"
+                  color: root.selectedText
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.body
+                }
+
+                MouseArea {
+                  anchors.fill: parent
+                  cursorShape: Qt.PointingHandCursor
+                  onClicked: { root.capturing = !root.capturing; root.captureNote = "" }
+                }
+              }
+            }
+
+            Text {
+              width: parent.width
+              visible: root.captureNote !== "" || root.capturing
+              text: root.captureNote !== "" ? root.captureNote
+                : "Pick a combination nothing else uses — already-taken keys will trigger their old action instead."
+              wrapMode: Text.WordWrap
+              color: root.foreground
+              opacity: 0.6
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.caption
+            }
+
+            Text {
+              text: "Summon style"
+              color: root.foreground
+              opacity: 0.75
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.body
+            }
+
+            Column {
+              width: parent.width
+              spacing: Style.space(4)
+
+              Repeater {
+                model: [
+                  { mode: "center", label: "Pop up in the middle of the screen" },
+                  { mode: "dropdown", label: "Drop down from the bar icon" }
+                ]
+                delegate: Rectangle {
+                  required property var modelData
+                  width: parent.width
+                  height: Style.space(30)
+                  radius: root.cornerRadius
+                  color: root.draftMode === modelData.mode ? root.selectedBackground : "transparent"
+
+                  Text {
+                    anchors.left: parent.left
+                    anchors.leftMargin: Style.spacing.md
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: (root.draftMode === modelData.mode ? "● " : "○ ") + modelData.label
+                    color: root.draftMode === modelData.mode ? root.selectedText : root.foreground
+                    font.family: root.fontFamily
+                    font.pixelSize: Style.font.body
+                  }
+
+                  MouseArea {
+                    anchors.fill: parent
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: {
+                      root.draftMode = modelData.mode
+                      if (modelData.mode === "dropdown") root.draftBarIcon = true
+                    }
+                  }
+                }
+              }
+            }
+
+            Rectangle {
+              width: parent.width
+              height: Style.space(30)
+              radius: root.cornerRadius
+              color: "transparent"
+
+              Text {
+                anchors.left: parent.left
+                anchors.leftMargin: Style.spacing.md
+                anchors.verticalCenter: parent.verticalCenter
+                text: (root.draftBarIcon ? "● " : "○ ") + "Show the 全 icon in the bar"
+                  + (root.draftMode === "dropdown" ? "  (needed for dropdown)" : "")
+                color: root.foreground
+                opacity: root.draftMode === "dropdown" ? 0.55 : 1
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.body
+              }
+
+              MouseArea {
+                anchors.fill: parent
+                enabled: root.draftMode !== "dropdown"
+                cursorShape: Qt.PointingHandCursor
+                onClicked: root.draftBarIcon = !root.draftBarIcon
+              }
+            }
+
+            Row {
+              visible: root.draftBarIcon
+              spacing: Style.space(4)
+
+              Text {
+                anchors.verticalCenter: parent.verticalCenter
+                text: "Icon position:  "
+                color: root.foreground
+                opacity: 0.75
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.body
+              }
+
+              Repeater {
+                model: ["left", "center", "right"]
+                delegate: Rectangle {
+                  required property var modelData
+                  width: sectionLabel.width + Style.spacing.md * 2
+                  height: Style.space(28)
+                  radius: root.cornerRadius
+                  color: root.draftBarSection === modelData ? root.selectedBackground : "transparent"
+                  border.color: root.border
+                  border.width: root.draftBarSection === modelData ? 0 : 1
+
+                  Text {
+                    id: sectionLabel
+                    anchors.centerIn: parent
+                    text: modelData
+                    color: root.draftBarSection === modelData ? root.selectedText : root.foreground
+                    font.family: root.fontFamily
+                    font.pixelSize: Style.font.body
+                  }
+
+                  MouseArea {
+                    anchors.fill: parent
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: root.draftBarSection = modelData
+                  }
+                }
+              }
+            }
+
+            Row {
+              spacing: Style.space(4)
+
+              Text {
+                anchors.verticalCenter: parent.verticalCenter
+                text: "Clicking an emoji:  "
+                color: root.foreground
+                opacity: 0.75
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.body
+              }
+
+              Repeater {
+                model: [
+                  { id: "copy", label: "copies it" },
+                  { id: "type", label: "types it" },
+                  { id: "both", label: "both" }
+                ]
+                delegate: Rectangle {
+                  required property var modelData
+                  width: emojiActLabel.width + Style.spacing.md * 2
+                  height: Style.space(28)
+                  radius: root.cornerRadius
+                  color: root.draftEmojiAction === modelData.id ? root.selectedBackground : "transparent"
+                  border.color: root.border
+                  border.width: root.draftEmojiAction === modelData.id ? 0 : 1
+
+                  Text {
+                    id: emojiActLabel
+                    anchors.centerIn: parent
+                    text: modelData.label
+                    color: root.draftEmojiAction === modelData.id ? root.selectedText : root.foreground
+                    font.family: root.fontFamily
+                    font.pixelSize: Style.font.body
+                  }
+
+                  MouseArea {
+                    anchors.fill: parent
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: root.draftEmojiAction = modelData.id
+                  }
+                }
+              }
+            }
+
+            Text {
+              width: parent.width
+              wrapMode: Text.WordWrap
+              text: "Applying saves these choices, updates Zenbu's own marked hotkey block in bindings.lua, and adds or removes the bar icon. Nothing else is touched."
+              color: root.foreground
+              opacity: 0.55
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.caption
+            }
+
+            Row {
+              spacing: Style.spacing.md
+
+              Rectangle {
+                width: applyLabel.width + Style.spacing.md * 3
+                height: Style.space(32)
+                radius: root.cornerRadius
+                color: root.selectedBackground
+
+                Text {
+                  id: applyLabel
+                  anchors.centerIn: parent
+                  text: root.view === "greeter" ? "Start Zenbu" : "Apply"
+                  color: root.selectedText
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.title
+                }
+
+                MouseArea {
+                  anchors.fill: parent
+                  cursorShape: Qt.PointingHandCursor
+                  onClicked: root.applyDrafts()
+                }
+              }
+
+              Rectangle {
+                visible: root.view === "settings"
+                width: cancelLabel.width + Style.spacing.md * 3
+                height: Style.space(32)
+                radius: root.cornerRadius
+                color: "transparent"
+                border.color: root.border
+                border.width: 1
+
+                Text {
+                  id: cancelLabel
+                  anchors.centerIn: parent
+                  text: "Cancel"
+                  color: root.foreground
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.title
+                }
+
+                MouseArea {
+                  anchors.fill: parent
+                  cursorShape: Qt.PointingHandCursor
+                  onClicked: root.view = "list"
+                }
+              }
+            }
+          }
+        }
+
+        // Fixed footer: key hints, settings gear on the far right.
+        Row {
+          id: footerRow
+          width: parent.width
+          spacing: Style.spacing.md
+
+          Text {
+            width: parent.width - gearIcon.width - parent.spacing
+            anchors.verticalCenter: parent.verticalCenter
+            text: "Tab tabs · ↑↓ move · ⏎ act · Esc close"
+            color: root.foreground
+            opacity: 0.55
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.caption
+            elide: Text.ElideRight
+          }
+
+          Text {
+            id: gearIcon
+            anchors.verticalCenter: parent.verticalCenter
+            text: "󰒓"
+            color: root.view === "settings" ? root.selectedText : root.foreground
+            opacity: root.view === "settings" ? 1 : 0.7
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.heading
+
+            MouseArea {
+              anchors.fill: parent
+              anchors.margins: -Style.space(4)
+              cursorShape: Qt.PointingHandCursor
+              onClicked: {
+                if (root.view === "settings") root.view = "list"
+                else { root.syncDrafts(); root.view = "settings" }
+              }
+            }
           }
         }
       }

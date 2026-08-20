@@ -8,6 +8,12 @@ single overlay that is themed by your active Omarchy theme, automatically,
 with no configuration. It is built for the keyboard, like the rest of
 Omarchy: type to filter, Tab to change tabs, Enter to act, Esc to leave.
 
+You decide how it appears. On first open a short greeter asks three
+questions — which hotkey should summon it (you press the keys, nothing is
+predefined), whether it pops up in the middle of the screen or drops down
+from a bar icon, and whether to show the 全 icon in the bar at all. Every
+choice can be changed later from the ⚙ in the footer.
+
 ## The tabs
 
 - **Apps** — every installed application, with icons, fuzzy-searched by the
@@ -36,7 +42,8 @@ Omarchy: type to filter, Tab to change tabs, Enter to act, Esc to leave.
 | `Esc` | Clear the search, then close |
 
 The mouse works too: click a tab, click a row, and drag any edge or corner
-of the card to resize it — the size is remembered.
+of the card to resize it — the size is remembered. A fixed footer shows the
+keys, with the ⚙ settings on its far right.
 
 ## Install
 
@@ -44,13 +51,16 @@ of the card to resize it — the size is remembered.
 omarchy plugin add https://github.com/weedwhitesandwine/Zenbu.git --enable
 ```
 
-Then bind a key in `~/.config/hypr/bindings.lua`:
+Then open it once by hand to meet the greeter:
 
-```lua
-o.bind("SUPER + U", "Zenbu (everything launcher)", "omarchy-shell shell toggle io.github.weedwhitesandwine.zenbu")
+```bash
+omarchy-shell shell toggle io.github.weedwhitesandwine.zenbu
 ```
 
-(Any free key combination works.)
+The greeter records your hotkey (press the keys you want — pick a
+combination nothing else uses), your summon style (centered pop-up, or
+dropdown from the bar icon), and whether the 全 bar icon is shown. From
+then on your own hotkey and/or the icon summon it.
 
 ### Requirements
 
@@ -68,12 +78,30 @@ fonts, spacing, and corner radii all come from the shell's theme system, so
 it always matches the active theme with nothing to configure. Apps come from
 the shell's shared application library (the same source as the Omarchy
 menu), windows from the Wayland toplevel list, emoji from Omarchy's own
-emoji data, and file results from `fd` run on demand. The only file Zenbu
-writes is its remembered card size in `~/.local/state/zenbu/`.
+emoji data, and file results from `fd` run on demand.
+
+What Zenbu writes, and when:
+
+- Its remembered card size and your settings, in `~/.local/state/zenbu/` —
+  its own state, nothing shared.
+- When you apply a hotkey in the greeter or settings (and only then), a
+  clearly-marked block in `~/.config/hypr/bindings.lua` via the bundled
+  `zenbu-ctl.sh`. It only ever replaces its own marked block — the rest of
+  the file is never touched — and removing the hotkey removes the block.
+- When you toggle the bar icon (and only then), the Zenbu entry in the bar
+  layout of `~/.config/omarchy/shell.json`, added with Omarchy's own
+  `omarchy bar put` and removed by deleting only its own entry.
+
+Nothing runs on a timer, nothing runs privileged, and nothing is changed
+without a click in the greeter or settings.
 
 ## Uninstall
 
+If you set a hotkey, remove Zenbu's block from `bindings.lua` first (or
+just delete the marked block by hand), then remove the plugin:
+
 ```bash
+~/.config/omarchy/plugins/io.github.weedwhitesandwine.zenbu/zenbu-ctl.sh unbind
 omarchy plugin remove io.github.weedwhitesandwine.zenbu
 ```
 

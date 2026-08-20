@@ -7,10 +7,19 @@
   "license": "MIT",
   "description": "Everything launcher for Omarchy: apps, emoji, files, calculator, windows, and SSH hosts in one themed overlay",
   "kinds": [
-    "overlay"
+    "overlay",
+    "bar-widget"
   ],
   "keepLoaded": true,
   "entryPoints": {
-    "overlay": "Zenbu.qml"
+    "overlay": "Zenbu.qml",
+    "barWidget": "BarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "Zenbu",
+    "description": "全 icon that opens the Zenbu everything-launcher; shown only if enabled in Zenbu's settings",
+    "category": "System",
+    "allowMultiple": false,
+    "defaultSection": "right"
   }
 }
