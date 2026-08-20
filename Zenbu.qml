@@ -531,8 +531,8 @@ Item {
     height: Style.space(28)
     radius: root.cornerRadius
     color: pill.active ? root.selectedBackground : "transparent"
-    border.color: root.border
-    border.width: pill.active ? 0 : 1
+    border.color: pill.active ? root.foreground : root.border
+    border.width: pill.active ? 1 : 0
     opacity: pill.locked ? 0.45 : 1
 
     Text {
@@ -540,6 +540,7 @@ Item {
       anchors.centerIn: parent
       text: pill.label
       color: pill.active ? root.selectedText : root.foreground
+      opacity: pill.active ? 1 : 0.55
       font.family: root.fontFamily
       font.pixelSize: Style.font.body
     }
@@ -1110,6 +1111,8 @@ Item {
                 height: Style.space(32)
                 radius: root.cornerRadius
                 color: root.selectedBackground
+                border.color: root.foreground
+                border.width: 1
 
                 Text {
                   id: applyLabel
@@ -1133,14 +1136,13 @@ Item {
                 height: Style.space(32)
                 radius: root.cornerRadius
                 color: "transparent"
-                border.color: root.border
-                border.width: 1
 
                 Text {
                   id: cancelLabel
                   anchors.centerIn: parent
                   text: "Cancel"
                   color: root.foreground
+                  opacity: 0.55
                   font.family: root.fontFamily
                   font.pixelSize: Style.font.title
                 }
