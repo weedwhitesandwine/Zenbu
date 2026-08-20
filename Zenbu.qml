@@ -512,7 +512,7 @@ Item {
   // remembered across sessions.
   // Settings form building blocks: one look for every option row.
   component SettingLabel: Text {
-    width: Style.space(116)
+    width: Style.space(200)
     anchors.verticalCenter: parent.verticalCenter
     color: root.foreground
     opacity: 0.75
@@ -1054,19 +1054,19 @@ Item {
             Row {
               spacing: Style.spacing.md
 
-              SettingLabel { text: "File search" }
+              SettingLabel { text: "Hidden files and folders" }
 
               Row {
                 spacing: Style.space(4)
 
                 SettingPill {
-                  label: "hidden folders too"
+                  label: "show"
                   active: root.draftHiddenFiles
                   onPicked: root.draftHiddenFiles = true
                 }
 
                 SettingPill {
-                  label: "visible only"
+                  label: "don't show"
                   active: !root.draftHiddenFiles
                   onPicked: root.draftHiddenFiles = false
                 }
@@ -1074,7 +1074,7 @@ Item {
 
               Text {
                 anchors.verticalCenter: parent.verticalCenter
-                text: "hidden = dot-folders like ~/.config"
+                text: "in file search — like ~/.config"
                 color: root.foreground
                 opacity: 0.55
                 font.family: root.fontFamily
