@@ -510,6 +510,48 @@ Item {
   // Drag any edge or corner of the card to resize it. The card stays
   // centered, so a drag grows or shrinks it symmetrically; the size is
   // remembered across sessions.
+  // Settings form building blocks: one look for every option row.
+  component SettingLabel: Text {
+    width: Style.space(116)
+    anchors.verticalCenter: parent.verticalCenter
+    color: root.foreground
+    opacity: 0.75
+    font.family: root.fontFamily
+    font.pixelSize: Style.font.body
+    elide: Text.ElideRight
+  }
+
+  component SettingPill: Rectangle {
+    id: pill
+    property string label
+    property bool active: false
+    property bool locked: false
+    signal picked()
+    width: pillLabel.width + Style.spacing.md * 2
+    height: Style.space(28)
+    radius: root.cornerRadius
+    color: pill.active ? root.selectedBackground : "transparent"
+    border.color: root.border
+    border.width: pill.active ? 0 : 1
+    opacity: pill.locked ? 0.45 : 1
+
+    Text {
+      id: pillLabel
+      anchors.centerIn: parent
+      text: pill.label
+      color: pill.active ? root.selectedText : root.foreground
+      font.family: root.fontFamily
+      font.pixelSize: Style.font.body
+    }
+
+    MouseArea {
+      anchors.fill: parent
+      enabled: !pill.locked
+      cursorShape: Qt.PointingHandCursor
+      onClicked: pill.picked()
+    }
+  }
+
   component ResizeHandle: MouseArea {
     property int edgeX: 0
     property int edgeY: 0
@@ -868,17 +910,11 @@ Item {
               width: parent.width
               spacing: Style.spacing.md
 
-              Text {
-                anchors.verticalCenter: parent.verticalCenter
-                text: "Hotkey"
-                color: root.foreground
-                font.family: root.fontFamily
-                font.pixelSize: Style.font.title
-              }
+              SettingLabel { text: "Hotkey" }
 
               Rectangle {
                 width: Style.space(180)
-                height: Style.space(30)
+                height: Style.space(28)
                 radius: root.cornerRadius
                 color: "transparent"
                 border.color: root.border
@@ -895,26 +931,10 @@ Item {
                 }
               }
 
-              Rectangle {
-                width: recordLabel.width + Style.spacing.md * 2
-                height: Style.space(30)
-                radius: root.cornerRadius
-                color: root.selectedBackground
-
-                Text {
-                  id: recordLabel
-                  anchors.centerIn: parent
-                  text: root.capturing ? "cancel" : "record"
-                  color: root.selectedText
-                  font.family: root.fontFamily
-                  font.pixelSize: Style.font.body
-                }
-
-                MouseArea {
-                  anchors.fill: parent
-                  cursorShape: Qt.PointingHandCursor
-                  onClicked: { root.capturing = !root.capturing; root.captureNote = "" }
-                }
+              SettingPill {
+                label: root.capturing ? "cancel" : "record"
+                active: true
+                onPicked: { root.capturing = !root.capturing; root.captureNote = "" }
               }
             }
 
@@ -930,185 +950,135 @@ Item {
               font.pixelSize: Style.font.caption
             }
 
-            Text {
-              text: "Summon style"
-              color: root.foreground
-              opacity: 0.75
-              font.family: root.fontFamily
-              font.pixelSize: Style.font.body
-            }
+            Row {
+              spacing: Style.spacing.md
 
-            Column {
-              width: parent.width
-              spacing: Style.space(4)
+              SettingLabel { text: "Summon style" }
 
-              Repeater {
-                model: [
-                  { mode: "center", label: "Pop up in the middle of the screen" },
-                  { mode: "dropdown", label: "Drop down from the bar icon" }
-                ]
-                delegate: Rectangle {
-                  required property var modelData
-                  width: parent.width
-                  height: Style.space(30)
-                  radius: root.cornerRadius
-                  color: root.draftMode === modelData.mode ? root.selectedBackground : "transparent"
+              Row {
+                spacing: Style.space(4)
 
-                  Text {
-                    anchors.left: parent.left
-                    anchors.leftMargin: Style.spacing.md
-                    anchors.verticalCenter: parent.verticalCenter
-                    text: (root.draftMode === modelData.mode ? "● " : "○ ") + modelData.label
-                    color: root.draftMode === modelData.mode ? root.selectedText : root.foreground
-                    font.family: root.fontFamily
-                    font.pixelSize: Style.font.body
-                  }
+                SettingPill {
+                  label: "centered pop-up"
+                  active: root.draftMode === "center"
+                  onPicked: root.draftMode = "center"
+                }
 
-                  MouseArea {
-                    anchors.fill: parent
-                    cursorShape: Qt.PointingHandCursor
-                    onClicked: {
-                      root.draftMode = modelData.mode
-                      if (modelData.mode === "dropdown") root.draftBarIcon = true
-                    }
-                  }
+                SettingPill {
+                  label: "dropdown from the bar icon"
+                  active: root.draftMode === "dropdown"
+                  onPicked: { root.draftMode = "dropdown"; root.draftBarIcon = true }
                 }
               }
             }
 
-            Rectangle {
-              width: parent.width
-              height: Style.space(30)
-              radius: root.cornerRadius
-              color: "transparent"
+            Row {
+              spacing: Style.spacing.md
 
-              Text {
-                anchors.left: parent.left
-                anchors.leftMargin: Style.spacing.md
-                anchors.verticalCenter: parent.verticalCenter
-                text: (root.draftBarIcon ? "● " : "○ ") + "Show the 全 icon in the bar"
-                  + (root.draftMode === "dropdown" ? "  (needed for dropdown)" : "")
-                color: root.foreground
-                opacity: root.draftMode === "dropdown" ? 0.55 : 1
-                font.family: root.fontFamily
-                font.pixelSize: Style.font.body
+              SettingLabel { text: "Bar icon 全" }
+
+              Row {
+                spacing: Style.space(4)
+
+                SettingPill {
+                  label: "shown"
+                  active: root.draftBarIcon
+                  locked: root.draftMode === "dropdown"
+                  onPicked: root.draftBarIcon = true
+                }
+
+                SettingPill {
+                  label: "hidden"
+                  active: !root.draftBarIcon
+                  locked: root.draftMode === "dropdown"
+                  onPicked: root.draftBarIcon = false
+                }
               }
 
-              MouseArea {
-                anchors.fill: parent
-                enabled: root.draftMode !== "dropdown"
-                cursorShape: Qt.PointingHandCursor
-                onClicked: root.draftBarIcon = !root.draftBarIcon
+              Text {
+                visible: root.draftMode === "dropdown"
+                anchors.verticalCenter: parent.verticalCenter
+                text: "needed for dropdown"
+                color: root.foreground
+                opacity: 0.55
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.caption
               }
             }
 
             Row {
               visible: root.draftBarIcon
-              spacing: Style.space(4)
+              spacing: Style.spacing.md
 
-              Text {
-                anchors.verticalCenter: parent.verticalCenter
-                text: "Icon position:  "
-                color: root.foreground
-                opacity: 0.75
-                font.family: root.fontFamily
-                font.pixelSize: Style.font.body
-              }
+              SettingLabel { text: "Icon position" }
 
-              Repeater {
-                model: ["left", "center", "right"]
-                delegate: Rectangle {
-                  required property var modelData
-                  width: sectionLabel.width + Style.spacing.md * 2
-                  height: Style.space(28)
-                  radius: root.cornerRadius
-                  color: root.draftBarSection === modelData ? root.selectedBackground : "transparent"
-                  border.color: root.border
-                  border.width: root.draftBarSection === modelData ? 0 : 1
+              Row {
+                spacing: Style.space(4)
 
-                  Text {
-                    id: sectionLabel
-                    anchors.centerIn: parent
-                    text: modelData
-                    color: root.draftBarSection === modelData ? root.selectedText : root.foreground
-                    font.family: root.fontFamily
-                    font.pixelSize: Style.font.body
-                  }
-
-                  MouseArea {
-                    anchors.fill: parent
-                    cursorShape: Qt.PointingHandCursor
-                    onClicked: root.draftBarSection = modelData
+                Repeater {
+                  model: ["left", "center", "right"]
+                  delegate: SettingPill {
+                    required property var modelData
+                    label: modelData
+                    active: root.draftBarSection === modelData
+                    onPicked: root.draftBarSection = modelData
                   }
                 }
               }
             }
 
             Row {
-              spacing: Style.space(4)
+              spacing: Style.spacing.md
 
-              Text {
-                anchors.verticalCenter: parent.verticalCenter
-                text: "Clicking an emoji:  "
-                color: root.foreground
-                opacity: 0.75
-                font.family: root.fontFamily
-                font.pixelSize: Style.font.body
-              }
+              SettingLabel { text: "Emoji click" }
 
-              Repeater {
-                model: [
-                  { id: "copy", label: "copies it" },
-                  { id: "type", label: "types it" },
-                  { id: "both", label: "both" }
-                ]
-                delegate: Rectangle {
-                  required property var modelData
-                  width: emojiActLabel.width + Style.spacing.md * 2
-                  height: Style.space(28)
-                  radius: root.cornerRadius
-                  color: root.draftEmojiAction === modelData.id ? root.selectedBackground : "transparent"
-                  border.color: root.border
-                  border.width: root.draftEmojiAction === modelData.id ? 0 : 1
+              Row {
+                spacing: Style.space(4)
 
-                  Text {
-                    id: emojiActLabel
-                    anchors.centerIn: parent
-                    text: modelData.label
-                    color: root.draftEmojiAction === modelData.id ? root.selectedText : root.foreground
-                    font.family: root.fontFamily
-                    font.pixelSize: Style.font.body
-                  }
-
-                  MouseArea {
-                    anchors.fill: parent
-                    cursorShape: Qt.PointingHandCursor
-                    onClicked: root.draftEmojiAction = modelData.id
+                Repeater {
+                  model: [
+                    { id: "copy", label: "copies it" },
+                    { id: "type", label: "types it" },
+                    { id: "both", label: "both" }
+                  ]
+                  delegate: SettingPill {
+                    required property var modelData
+                    label: modelData.label
+                    active: root.draftEmojiAction === modelData.id
+                    onPicked: root.draftEmojiAction = modelData.id
                   }
                 }
               }
             }
 
-            Rectangle {
-              width: parent.width
-              height: Style.space(30)
-              radius: root.cornerRadius
-              color: "transparent"
+            Row {
+              spacing: Style.spacing.md
 
-              Text {
-                anchors.left: parent.left
-                anchors.leftMargin: Style.spacing.md
-                anchors.verticalCenter: parent.verticalCenter
-                text: (root.draftHiddenFiles ? "● " : "○ ") + "File search includes hidden folders (like ~/.config)"
-                color: root.foreground
-                font.family: root.fontFamily
-                font.pixelSize: Style.font.body
+              SettingLabel { text: "File search" }
+
+              Row {
+                spacing: Style.space(4)
+
+                SettingPill {
+                  label: "hidden folders too"
+                  active: root.draftHiddenFiles
+                  onPicked: root.draftHiddenFiles = true
+                }
+
+                SettingPill {
+                  label: "visible only"
+                  active: !root.draftHiddenFiles
+                  onPicked: root.draftHiddenFiles = false
+                }
               }
 
-              MouseArea {
-                anchors.fill: parent
-                cursorShape: Qt.PointingHandCursor
-                onClicked: root.draftHiddenFiles = !root.draftHiddenFiles
+              Text {
+                anchors.verticalCenter: parent.verticalCenter
+                text: "hidden = dot-folders like ~/.config"
+                color: root.foreground
+                opacity: 0.55
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.caption
               }
             }
 
