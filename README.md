@@ -14,6 +14,8 @@ predefined), whether it pops up in the middle of the screen or drops down
 from a bar icon, and whether to show the 全 icon in the bar at all. Every
 choice can be changed later from the ⚙ in the footer.
 
+![Zenbu's Apps tab: six tabs, one search box, results with icons](preview.png)
+
 ## The tabs
 
 - **Apps** — every installed application, with icons, fuzzy-searched by the
