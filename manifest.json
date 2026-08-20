@@ -5,7 +5,7 @@
   "version": "0.1.0",
   "author": "weedwhitesandwine",
   "license": "MIT",
-  "description": "Everything launcher for Omarchy: apps, emoji, files, calculator, windows, and SSH hosts in one themed overlay",
+  "description": "Zenbu — a theme-aware launcher for everything",
   "kinds": [
     "overlay",
     "bar-widget"
