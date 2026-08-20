@@ -13,7 +13,7 @@ the choices — which hotkey should summon it (you press the keys, nothing is
 predefined), whether it pops up in the middle of the screen or drops down
 from a bar icon, whether to show the 全 icon in the bar at all (and where),
 and what clicking an emoji does. Every choice can be changed later from the
-⚙ in the footer, or `Ctrl+,`.
+⚙ in the footer, or Ctrl + comma.
 
 ![Zenbu's Apps tab: six tabs, one search box, results with icons](preview.png)
 
@@ -42,7 +42,7 @@ and what clicking an emoji does. Every choice can be changed later from the
 | `←` / `→` | Previous / next tab |
 | `↑` / `↓` / `PgUp` / `PgDn` | Move the selection |
 | `Enter` | Launch / type / open / focus / connect / copy |
-| `Ctrl+,` | Open settings |
+| `Ctrl` + comma | Open settings |
 | `Esc` | Clear the search, then close |
 
 The mouse works too: click a tab, click a row, and drag any edge or corner
