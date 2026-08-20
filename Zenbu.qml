@@ -86,7 +86,7 @@ Item {
     return decodeURIComponent(u.replace(/^file:\/\//, "")).replace(/\/$/, "")
   }
   readonly property string settingsFile: root.home + "/.local/state/zenbu/settings.json"
-  property var zsettings: ({ greeted: false, mode: "center", barIcon: false, barSection: "right", shortcut: "", emojiAction: "both" })
+  property var zsettings: ({ greeted: false, mode: "center", barIcon: false, barSection: "right", shortcut: "", emojiAction: "both", hiddenFiles: true })
   readonly property bool dropdown: zsettings.mode === "dropdown"
 
   // "list" is the launcher; "greeter" shows on first run; "settings" via ⚙.
@@ -98,6 +98,7 @@ Item {
   property string draftBarSection: "right"
   property string draftEmojiAction: "both"
   property string draftShortcut: ""
+  property bool draftHiddenFiles: true
   property bool capturing: false
   property string captureNote: ""
 
@@ -113,6 +114,7 @@ Item {
     root.draftBarSection = root.zsettings.barSection || "right"
     root.draftEmojiAction = root.zsettings.emojiAction || "both"
     root.draftShortcut = root.zsettings.shortcut || ""
+    root.draftHiddenFiles = root.zsettings.hiddenFiles !== false
     root.capturing = false
     root.captureNote = ""
   }
@@ -125,7 +127,8 @@ Item {
       barIcon: root.draftBarIcon,
       barSection: root.draftBarSection,
       emojiAction: root.draftEmojiAction,
-      shortcut: root.draftShortcut
+      shortcut: root.draftShortcut,
+      hiddenFiles: root.draftHiddenFiles
     }
     root.zsettings = s
     root.saveSettings()
@@ -425,9 +428,14 @@ Item {
                   "--max-results", "40", "--search-path", root.home,
                   "--exclude", ".cache", "--exclude", ".git", "--exclude", "node_modules",
                   "--exclude", "Games", "--exclude", ".local/share/Steam",
-                  "--exclude", ".local/share/Trash", "--exclude", "__pycache__"]
+                  "--exclude", ".local/share/Trash", "--exclude", "__pycache__",
+                  "--exclude", "site-packages", "--exclude", "Backups",
+                  "--exclude", ".local/share/nvim"]
       if (root.filterText.trim() === "") args = args.concat(["--max-depth", "1"])
-      else args = args.concat([root.filterText.trim()])
+      else {
+        if (root.zsettings.hiddenFiles !== false) args.push("--hidden")
+        args.push(root.filterText.trim())
+      }
       fdProc.command = args
       fdProc.running = false
       fdProc.running = true
@@ -1078,6 +1086,29 @@ Item {
                     onClicked: root.draftEmojiAction = modelData.id
                   }
                 }
+              }
+            }
+
+            Rectangle {
+              width: parent.width
+              height: Style.space(30)
+              radius: root.cornerRadius
+              color: "transparent"
+
+              Text {
+                anchors.left: parent.left
+                anchors.leftMargin: Style.spacing.md
+                anchors.verticalCenter: parent.verticalCenter
+                text: (root.draftHiddenFiles ? "● " : "○ ") + "File search includes hidden folders (like ~/.config)"
+                color: root.foreground
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.body
+              }
+
+              MouseArea {
+                anchors.fill: parent
+                cursorShape: Qt.PointingHandCursor
+                onClicked: root.draftHiddenFiles = !root.draftHiddenFiles
               }
             }
 

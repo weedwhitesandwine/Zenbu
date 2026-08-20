@@ -24,9 +24,10 @@ and what clicking an emoji does. Every choice can be changed later from the
 - **Emoji** — search by name ("shrug", "fire"), shown large enough to
   actually tell apart. Enter types the emoji into the app you came from.
 - **Files** — type part of a filename and get instant results from across
-  your home folder (powered by `fd`, with cache/build/Steam junk excluded so
-  it stays fast). Enter opens with the default app. An empty search shows
-  your home folder.
+  your home folder, hidden dot-folders like `~/.config` included (a
+  settings toggle, on by default; powered by `fd`, with
+  cache/build/backup/Steam junk excluded so it stays fast). Enter opens
+  with the default app. An empty search shows your home folder.
 - **Calc** — a live calculator and unit converter on the full qalculate
   engine: `35kg to lbs`, `15% * 4300`, `sqrt(2)`. Enter copies the result.
 - **Windows** — every open window; Enter focuses it.
