@@ -8,11 +8,12 @@ single overlay that is themed by your active Omarchy theme, automatically,
 with no configuration. It is built for the keyboard, like the rest of
 Omarchy: type to filter, Tab to change tabs, Enter to act, Esc to leave.
 
-You decide how it appears. On first open a short greeter asks three
-questions — which hotkey should summon it (you press the keys, nothing is
+You decide how it appears. On first open a short greeter walks you through
+the choices — which hotkey should summon it (you press the keys, nothing is
 predefined), whether it pops up in the middle of the screen or drops down
-from a bar icon, and whether to show the 全 icon in the bar at all. Every
-choice can be changed later from the ⚙ in the footer.
+from a bar icon, whether to show the 全 icon in the bar at all (and where),
+and what clicking an emoji does. Every choice can be changed later from the
+⚙ in the footer, or `Ctrl+,`.
 
 ![Zenbu's Apps tab: six tabs, one search box, results with icons](preview.png)
 
@@ -41,6 +42,7 @@ choice can be changed later from the ⚙ in the footer.
 | `←` / `→` | Previous / next tab |
 | `↑` / `↓` / `PgUp` / `PgDn` | Move the selection |
 | `Enter` | Launch / type / open / focus / connect / copy |
+| `Ctrl+,` | Open settings |
 | `Esc` | Clear the search, then close |
 
 The mouse works too: click a tab, click a row, and drag any edge or corner
@@ -66,12 +68,13 @@ then on your own hotkey and/or the icon summon it.
 
 ### Requirements
 
-All of these ship with, or are standard on, Omarchy — Zenbu just uses them:
-
-- `fd` for the Files tab
-- `qalc` (libqalculate) for the Calc tab
-- `wl-copy` (wl-clipboard) for copying Calc results
-- `alacritty` for opening SSH connections
+- `fd` (Files tab) and `wl-clipboard` (copying) ship with Omarchy's base
+  install — nothing to do.
+- The Calc tab needs the `qalc` calculator, which Omarchy does **not**
+  install by default. Without it the tab simply tells you so; enable it
+  with one command: `omarchy pkg add libqalculate`.
+- SSH connections open in your own terminal (whatever Omarchy is
+  configured to use) — no specific terminal required.
 
 ## How it works
 
@@ -90,12 +93,14 @@ What Zenbu writes, and when:
   clearly-marked block in `~/.config/hypr/bindings.lua` via the bundled
   `zenbu-ctl.sh`. It only ever replaces its own marked block — the rest of
   the file is never touched — and removing the hotkey removes the block.
-- When you toggle the bar icon (and only then), the Zenbu entry in the bar
-  layout of `~/.config/omarchy/shell.json`, added with Omarchy's own
-  `omarchy bar put` and removed by deleting only its own entry.
+- When you toggle the bar icon or move it (and only then), Zenbu's own
+  entry in `~/.config/omarchy/shell.json`: it is placed in the bar layout
+  to show the icon, or parked in the enabled-plugins list to hide it —
+  only Zenbu's entry is ever touched, and the shell reloads the file
+  automatically.
 
 Nothing runs on a timer, nothing runs privileged, and nothing is changed
-without a click in the greeter or settings.
+until you explicitly apply it in the greeter or settings.
 
 ## Uninstall
 

@@ -41,6 +41,7 @@ Item {
   property var fileRows: []
   property string calcResult: ""
   property string calcExpr: ""
+  property bool qalcAvailable: true
 
   // ------------------------------------------------------------------ theme
   property color background: Color.menu.background
@@ -162,6 +163,7 @@ Item {
     root.view = root.zsettings.greeted === true ? "list" : "greeter"
     if (root.view === "greeter") root.syncDrafts()
     if (root.shell && root.shell.appLibrary) root.shell.appLibrary.refreshIcons()
+    if (!qalcCheck.running) qalcCheck.running = true
     root.rebuild()
     Qt.callLater(function() { keyCatcher.forceActiveFocus() })
   }
@@ -297,6 +299,8 @@ Item {
   }
 
   function calcRows() {
+    if (!root.qalcAvailable)
+      return [{ label: "Calc needs the qalc calculator", sub: "Install it once:  omarchy pkg add libqalculate", icon: "", glyph: "󰃬", hint: "" }]
     if (!root.filterText.trim())
       return [{ label: "Type a calculation…", sub: "35kg to lbs · 15% * 4300 · sqrt(2) · 8*7+12", icon: "", glyph: "󰃬", hint: "" }]
     if (root.calcResult && root.calcExpr === root.filterText)
@@ -335,7 +339,8 @@ Item {
       try { row.windowRef.activate() } catch (e) {}
     } else if (row.host !== undefined) {
       root.dismiss()
-      Quickshell.execDetached(["alacritty", "-e", "ssh", row.host])
+      // Opens in whatever terminal the user actually uses (xdg-terminal-exec).
+      Quickshell.execDetached(["omarchy-launch-terminal", "ssh", row.host])
     } else if (row.copyText !== undefined) {
       root.dismiss()
       Quickshell.execDetached(["wl-copy", row.copyText])
@@ -463,11 +468,17 @@ Item {
     }
   }
 
+  Process {
+    id: qalcCheck
+    command: ["bash", "-c", "command -v qalc"]
+    onExited: function(code) { root.qalcAvailable = code === 0 }
+  }
+
   Timer {
     id: calcDebounce
     interval: 140
     onTriggered: {
-      if (root.tab !== "calc" || !root.opened || !root.filterText.trim()) return
+      if (root.tab !== "calc" || !root.opened || !root.filterText.trim() || !root.qalcAvailable) return
       calcProc.command = ["qalc", "-t", root.filterText]
       calcProc.running = false
       calcProc.running = true
@@ -598,6 +609,10 @@ Item {
           if (event.key === Qt.Key_Escape) {
             if (root.filterText) root.setFilter("")
             else root.dismiss()
+            event.accepted = true
+          } else if (event.key === Qt.Key_Comma && (event.modifiers & Qt.ControlModifier)) {
+            root.syncDrafts()
+            root.view = "settings"
             event.accepted = true
           } else if (event.key === Qt.Key_Tab) {
             root.switchTab(1)
@@ -1064,6 +1079,16 @@ Item {
                   }
                 }
               }
+            }
+
+            Text {
+              width: parent.width
+              visible: root.draftShortcut === "" && !root.draftBarIcon
+              wrapMode: Text.WordWrap
+              text: "⚠ No hotkey and no bar icon: Zenbu could then only be opened from a terminal with `omarchy-shell shell toggle io.github.weedwhitesandwine.zenbu`."
+              color: root.foreground
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.caption
             }
 
             Text {
