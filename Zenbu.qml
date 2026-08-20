@@ -86,7 +86,7 @@ Item {
     return decodeURIComponent(u.replace(/^file:\/\//, "")).replace(/\/$/, "")
   }
   readonly property string settingsFile: root.home + "/.local/state/zenbu/settings.json"
-  property var zsettings: ({ greeted: false, mode: "center", barIcon: false, barSection: "right", shortcut: "", emojiAction: "both", hiddenFiles: true })
+  property var zsettings: ({ greeted: false, mode: "center", barIcon: false, barSection: "right", shortcut: "", emojiAction: "both", hiddenFiles: true, systemFiles: false })
   readonly property bool dropdown: zsettings.mode === "dropdown"
 
   // "list" is the launcher; "greeter" shows on first run; "settings" via ⚙.
@@ -99,6 +99,7 @@ Item {
   property string draftEmojiAction: "both"
   property string draftShortcut: ""
   property bool draftHiddenFiles: true
+  property bool draftSystemFiles: false
   property bool capturing: false
   property string captureNote: ""
 
@@ -115,6 +116,7 @@ Item {
     root.draftEmojiAction = root.zsettings.emojiAction || "both"
     root.draftShortcut = root.zsettings.shortcut || ""
     root.draftHiddenFiles = root.zsettings.hiddenFiles !== false
+    root.draftSystemFiles = root.zsettings.systemFiles === true
     root.capturing = false
     root.captureNote = ""
   }
@@ -128,7 +130,8 @@ Item {
       barSection: root.draftBarSection,
       emojiAction: root.draftEmojiAction,
       shortcut: root.draftShortcut,
-      hiddenFiles: root.draftHiddenFiles
+      hiddenFiles: root.draftHiddenFiles,
+      systemFiles: root.draftSystemFiles
     }
     root.zsettings = s
     root.saveSettings()
@@ -433,6 +436,8 @@ Item {
                   "--exclude", ".local/share/nvim"]
       if (root.filterText.trim() === "") args = args.concat(["--max-depth", "1"])
       else {
+        if (root.zsettings.systemFiles === true)
+          args = args.concat(["--search-path", "/usr", "--search-path", "/etc", "--search-path", "/opt"])
         if (root.zsettings.hiddenFiles !== false) args.push("--hidden")
         args.push(root.filterText.trim())
       }
@@ -1076,6 +1081,37 @@ Item {
               Text {
                 anchors.verticalCenter: parent.verticalCenter
                 text: "in file search — like ~/.config"
+                color: root.foreground
+                opacity: 0.55
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.caption
+              }
+            }
+
+            Row {
+              spacing: Style.spacing.md
+
+              SettingLabel { text: "System files" }
+
+              Row {
+                spacing: Style.space(4)
+
+                SettingPill {
+                  label: "show"
+                  active: root.draftSystemFiles
+                  onPicked: root.draftSystemFiles = true
+                }
+
+                SettingPill {
+                  label: "don't show"
+                  active: !root.draftSystemFiles
+                  onPicked: root.draftSystemFiles = false
+                }
+              }
+
+              Text {
+                anchors.verticalCenter: parent.verticalCenter
+                text: "in file search — /usr, /etc and /opt"
                 color: root.foreground
                 opacity: 0.55
                 font.family: root.fontFamily
