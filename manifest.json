@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "id": "io.github.weedwhitesandwine.zenbu",
+  "name": "Zenbu",
+  "version": "0.1.0",
+  "author": "weedwhitesandwine",
+  "license": "MIT",
+  "description": "Everything launcher for Omarchy: apps, emoji, files, calculator, windows, and SSH hosts in one themed overlay",
+  "kinds": [
+    "overlay"
+  ],
+  "keepLoaded": true,
+  "entryPoints": {
+    "overlay": "Zenbu.qml"
+  }
+}
