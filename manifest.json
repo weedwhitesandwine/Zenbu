@@ -5,7 +5,7 @@
   "version": "0.1.0",
   "author": "weedwhitesandwine",
   "license": "MIT",
-  "description": "Zenbu — a theme-aware launcher for everything",
+  "description": "全部 — a theme-aware launcher for everything",
   "kinds": [
     "overlay",
     "bar-widget"
