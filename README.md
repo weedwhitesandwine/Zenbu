@@ -1,6 +1,6 @@
 # Zenbu
 
-**全部 — "everything." One keyboard-driven overlay for all of it.**
+**全部 — a theme-aware launcher for everything.**
 
 Zenbu is an everything-launcher for [Omarchy](https://omarchy.org): press one
 key and get six tabs — Apps, Emoji, Files, Calc, Windows, and SSH — in a
