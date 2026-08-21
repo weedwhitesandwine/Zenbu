@@ -166,6 +166,7 @@ Item {
     root.opened = true
     root.filterText = ""
     root.selectedIndex = 0
+    pointerGate.reset()
     root.view = root.zsettings.greeted === true ? "list" : "greeter"
     if (root.view === "greeter") root.syncDrafts()
     if (root.shell && root.shell.appLibrary) root.shell.appLibrary.refreshIcons()
@@ -205,12 +206,14 @@ Item {
     root.calcResult = ""
     root.calcExpr = ""
     root.selectedIndex = 0
+    pointerGate.reset()
     root.rebuild()
   }
 
   function setFilter(next) {
     root.filterText = next
     root.selectedIndex = 0
+    pointerGate.reset()
     root.rebuild()
   }
 
@@ -355,16 +358,31 @@ Item {
 
   function select(delta) {
     if (root.rows.length === 0) return
+    pointerGate.reset()
     root.selectedIndex = (root.selectedIndex + delta + root.rows.length) % root.rows.length
     listView.positionViewAtIndex(root.selectedIndex, ListView.Contain)
   }
 
   function selectPage(delta) {
     if (root.rows.length === 0) return
+    pointerGate.reset()
     var visible = Math.max(1, Math.floor(listView.height / root.rowHeight))
     var next = root.selectedIndex + delta * visible
     root.selectedIndex = Math.max(0, Math.min(root.rows.length - 1, next))
     listView.positionViewAtIndex(root.selectedIndex, ListView.Contain)
+  }
+
+  // Hover moves the selection, but only on real pointer movement. Rows sliding
+  // under a stationary cursor raise the same hover signals, which would drag the
+  // selection back mid-list while arrowing down through a scrolling list.
+  function selectFromPointer(index, item, mouse) {
+    if (!pointerGate.moved(item, mouse)) return
+    root.selectedIndex = index
+  }
+
+  PointerMoveGate {
+    id: pointerGate
+    referenceItem: card
   }
 
   Component.onCompleted: ZenbuState.overlay = root
@@ -476,6 +494,7 @@ Item {
         if (root.opened && root.tab === "files") {
           root.rows = out
           if (root.selectedIndex >= out.length) root.selectedIndex = Math.max(0, out.length - 1)
+          pointerGate.reset()
         }
       }
     }
@@ -784,6 +803,7 @@ Item {
             boundsBehavior: Flickable.StopAtBounds
 
             delegate: Rectangle {
+              id: row
               required property var modelData
               required property int index
 
@@ -863,11 +883,16 @@ Item {
               }
 
               MouseArea {
+                id: rowMouse
                 anchors.fill: parent
                 hoverEnabled: true
                 cursorShape: Qt.PointingHandCursor
-                onContainsMouseChanged: if (containsMouse) root.selectedIndex = index
-                onClicked: root.activate(index)
+                onEntered: root.selectFromPointer(row.index, row, { x: rowMouse.mouseX, y: rowMouse.mouseY })
+                onPositionChanged: (mouse) => root.selectFromPointer(row.index, row, mouse)
+                onClicked: {
+                  root.selectedIndex = row.index
+                  root.activate(row.index)
+                }
               }
             }
           }
