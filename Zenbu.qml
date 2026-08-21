@@ -164,7 +164,11 @@ Item {
   // -------------------------------------------------------------- lifecycle
   function open(payloadJson) {
     root.opened = true
+    // Always start on Apps, whatever tab was showing when it was last closed.
+    root.tabIndex = 0
     root.filterText = ""
+    root.calcResult = ""
+    root.calcExpr = ""
     root.selectedIndex = 0
     pointerGate.reset()
     root.view = root.zsettings.greeted === true ? "list" : "greeter"
