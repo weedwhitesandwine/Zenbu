@@ -114,7 +114,8 @@ Item {
     root.draftBarIcon = root.zsettings.barIcon === true
     root.draftBarSection = root.zsettings.barSection || "right"
     root.draftEmojiAction = root.zsettings.emojiAction || "both"
-    root.draftShortcut = root.zsettings.shortcut || ""
+    root.draftShortcut = root.validShortcut(root.zsettings.shortcut)
+                         ? root.zsettings.shortcut : ""
     root.draftHiddenFiles = root.zsettings.hiddenFiles !== false
     root.draftSystemFiles = root.zsettings.systemFiles === true
     root.capturing = false
@@ -137,10 +138,25 @@ Item {
     root.saveSettings()
     Quickshell.execDetached(["bash", root.pluginDir + "/zenbu-ctl.sh", "bar",
                              s.barIcon ? "on" : "off", s.barSection])
-    if (s.shortcut) Quickshell.execDetached(["bash", root.pluginDir + "/zenbu-ctl.sh", "bind", s.shortcut])
-    else Quickshell.execDetached(["bash", root.pluginDir + "/zenbu-ctl.sh", "unbind"])
+    if (root.validShortcut(s.shortcut))
+      Quickshell.execDetached(["bash", root.pluginDir + "/zenbu-ctl.sh", "bind", s.shortcut])
+    else
+      Quickshell.execDetached(["bash", root.pluginDir + "/zenbu-ctl.sh", "unbind"])
     root.view = "list"
     root.rebuild()
+  }
+
+  // A hotkey is a fixed shape: one or more modifiers, then one key. Anything
+  // else is not a hotkey, and since this value is written into bindings.lua as
+  // Lua source, "anything else" has to mean refused rather than escaped. The
+  // capture code below can only produce this shape, but settings.json can be
+  // edited or restored from a backup without going near the capture code at
+  // all, so what is read back is checked before it is used.
+  readonly property var shortcutPattern:
+    /^(SUPER|CTRL|ALT|SHIFT)( \+ (SUPER|CTRL|ALT|SHIFT))* \+ ([A-Z0-9]|F([1-9]|1[0-2]))$/
+
+  function validShortcut(v) {
+    return typeof v === "string" && v.length <= 40 && root.shortcutPattern.test(v)
   }
 
   function captureKey(event) {
@@ -389,55 +405,102 @@ Item {
     referenceItem: card
   }
 
-  Component.onCompleted: ZenbuState.overlay = root
+  Component.onCompleted: {
+    ZenbuState.overlay = root
+    root.readZsettings()
+    root.readSize()
+    root.readEmoji()
+    root.readSshHosts()
+  }
 
   // ------------------------------------------------------------ data feeds
+  // Everything read off disk goes through `head`, which puts the ceiling in
+  // front of the read rather than behind it. FileView has no way to stop short
+  // of the end of a file — by the time text() exists the whole file is in a
+  // shell that stays up for days — so it does not do the reading here; it only
+  // watches, with blockAllReads set so it never pulls a file into memory. A
+  // file past its ceiling arrives cut off, fails to parse, and is ignored.
+  //
+  // None of these are Zenbu's to trust: settings and the size file can be
+  // restored from a backup, and the emoji list and SSH config belong to other
+  // programs entirely.
+  readonly property int settingsCeiling: 64 * 1024
+  readonly property int sizeCeiling: 64
+  readonly property int emojiCeiling: 8 * 1024 * 1024
+  readonly property int sshCeiling: 1024 * 1024
+
   FileView {
     path: root.settingsFile
     printErrors: false
     watchChanges: true
-    onLoaded: {
-      try {
-        var s = JSON.parse(text())
-        if (s && typeof s === "object") root.zsettings = s
-      } catch (e) {}
-    }
-    onFileChanged: reload()
+    blockAllReads: true
+    preload: false
+    onFileChanged: root.readZsettings()
   }
 
-  FileView {
-    path: root.sizeFile
-    printErrors: false
-    onLoaded: {
-      var m = String(text() || "").trim().match(/^(\d+)x(\d+)$/)
-      if (m) { root.userWidth = parseInt(m[1]); root.userHeight = parseInt(m[2]) }
-    }
-  }
+  function readZsettings() { settingsReader.running = false; settingsReader.running = true }
+  function readSize() { sizeReader.running = false; sizeReader.running = true }
+  function readEmoji() { emojiReader.running = false; emojiReader.running = true }
+  function readSshHosts() { sshReader.running = false; sshReader.running = true }
 
-  FileView {
-    path: root.omarchyPath + "/shell/plugins/emojis/emojis.json"
-    onLoaded: {
-      try { root.emojiData = JSON.parse(text()) } catch (e) { root.emojiData = [] }
-      if (root.opened && root.tab === "emoji") root.rebuild()
-    }
-  }
-
-  FileView {
-    path: root.home + "/.ssh/config"
-    printErrors: false
-    onLoaded: {
-      var hosts = []
-      var lines = String(text() || "").split("\n")
-      for (var i = 0; i < lines.length; i++) {
-        var m = lines[i].match(/^\s*Host\s+(.+)$/i)
-        if (!m) continue
-        var names = m[1].trim().split(/\s+/)
-        for (var j = 0; j < names.length; j++) {
-          if (names[j].indexOf("*") < 0 && names[j].indexOf("?") < 0) hosts.push(names[j])
-        }
+  Process {
+    id: settingsReader
+    command: ["head", "-c", String(root.settingsCeiling), "--", root.settingsFile]
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: {
+        try {
+          var s = JSON.parse(text)
+          if (s && typeof s === "object") root.zsettings = s
+        } catch (e) {}
       }
-      root.sshHosts = hosts
-      if (root.opened && root.tab === "ssh") root.rebuild()
+    }
+  }
+
+  Process {
+    id: sizeReader
+    command: ["head", "-c", String(root.sizeCeiling), "--", root.sizeFile]
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: {
+        var m = String(text || "").trim().match(/^(\d+)x(\d+)$/)
+        if (m) { root.userWidth = parseInt(m[1]); root.userHeight = parseInt(m[2]) }
+      }
+    }
+  }
+
+  Process {
+    id: emojiReader
+    command: ["head", "-c", String(root.emojiCeiling), "--",
+              root.omarchyPath + "/shell/plugins/emojis/emojis.json"]
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: {
+        try { root.emojiData = JSON.parse(text) } catch (e) { root.emojiData = [] }
+        if (root.opened && root.tab === "emoji") root.rebuild()
+      }
+    }
+  }
+
+  Process {
+    id: sshReader
+    command: ["head", "-c", String(root.sshCeiling), "--", root.home + "/.ssh/config"]
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: {
+        var hosts = []
+        var lines = String(text || "").split("\n")
+        for (var i = 0; i < lines.length; i++) {
+          var m = lines[i].match(/^\s*Host\s+(.+)$/i)
+          if (!m) continue
+          var names = m[1].trim().split(/\s+/)
+          for (var j = 0; j < names.length; j++) {
+            if (names[j].indexOf("*") < 0 && names[j].indexOf("?") < 0) hosts.push(names[j])
+          }
+        }
+        root.sshHosts = hosts
+        if (root.opened && root.tab === "ssh") root.rebuild()
+      }
     }
   }
 
@@ -540,6 +603,7 @@ Item {
   // remembered across sessions.
   // Settings form building blocks: one look for every option row.
   component SettingLabel: Text {
+    textFormat: Text.PlainText
     width: Style.space(200)
     anchors.verticalCenter: parent.verticalCenter
     color: root.foreground
@@ -564,6 +628,7 @@ Item {
     opacity: pill.locked ? 0.45 : 1
 
     Text {
+      textFormat: Text.PlainText
       id: pillLabel
       anchors.centerIn: parent
       text: pill.label
@@ -759,6 +824,7 @@ Item {
               color: current ? root.selectedBackground : "transparent"
 
               Text {
+                textFormat: Text.PlainText
                 anchors.centerIn: parent
                 text: parent.modelData.label
                 color: parent.current ? root.selectedText : root.foreground
@@ -778,6 +844,7 @@ Item {
 
         // Search line
         Text {
+          textFormat: Text.PlainText
           visible: root.view === "list"
           width: parent.width
           text: root.filterText || root.tabs[root.tabIndex].placeholder
@@ -840,6 +907,7 @@ Item {
                   }
 
                   Text {
+                    textFormat: Text.PlainText
                     anchors.centerIn: parent
                     visible: modelData.icon === ""
                     text: modelData.glyph || ""
@@ -854,6 +922,7 @@ Item {
                   anchors.verticalCenter: parent.verticalCenter
 
                   Text {
+                    textFormat: Text.PlainText
                     width: parent.width
                     text: modelData.label || ""
                     color: current ? root.selectedText : root.foreground
@@ -863,6 +932,7 @@ Item {
                   }
 
                   Text {
+                    textFormat: Text.PlainText
                     width: parent.width
                     visible: (modelData.sub || "") !== ""
                     text: modelData.sub || ""
@@ -875,6 +945,7 @@ Item {
                 }
 
                 Text {
+                  textFormat: Text.PlainText
                   id: hintText
                   anchors.verticalCenter: parent.verticalCenter
                   visible: current && (modelData.hint || "") !== ""
@@ -902,6 +973,7 @@ Item {
           }
 
           Text {
+            textFormat: Text.PlainText
             anchors.centerIn: parent
             visible: root.rows.length === 0
             text: "No matches" + (root.filterText ? " for “" + root.filterText + "”" : "")
@@ -923,6 +995,7 @@ Item {
             spacing: Style.spacing.md
 
             Text {
+              textFormat: Text.PlainText
               width: parent.width
               text: root.view === "greeter" ? "全部 · welcome to Zenbu" : "Zenbu settings"
               color: root.foreground
@@ -931,6 +1004,7 @@ Item {
             }
 
             Text {
+              textFormat: Text.PlainText
               visible: root.view === "greeter"
               width: parent.width
               wrapMode: Text.WordWrap
@@ -956,6 +1030,7 @@ Item {
                 border.width: 1
 
                 Text {
+                  textFormat: Text.PlainText
                   anchors.centerIn: parent
                   text: root.capturing ? "press your keys…"
                     : (root.draftShortcut !== "" ? root.draftShortcut : "none set")
@@ -974,6 +1049,7 @@ Item {
             }
 
             Text {
+              textFormat: Text.PlainText
               width: parent.width
               visible: root.captureNote !== "" || root.capturing
               text: root.captureNote !== "" ? root.captureNote
@@ -1031,6 +1107,7 @@ Item {
               }
 
               Text {
+                textFormat: Text.PlainText
                 visible: root.draftMode === "dropdown"
                 anchors.verticalCenter: parent.verticalCenter
                 text: "needed for dropdown"
@@ -1108,6 +1185,7 @@ Item {
               }
 
               Text {
+                textFormat: Text.PlainText
                 anchors.verticalCenter: parent.verticalCenter
                 text: "in file search — like ~/.config"
                 color: root.foreground
@@ -1139,6 +1217,7 @@ Item {
               }
 
               Text {
+                textFormat: Text.PlainText
                 anchors.verticalCenter: parent.verticalCenter
                 text: "in file search — /usr, /etc and /opt"
                 color: root.foreground
@@ -1149,6 +1228,7 @@ Item {
             }
 
             Text {
+              textFormat: Text.PlainText
               width: parent.width
               visible: root.draftShortcut === "" && !root.draftBarIcon
               wrapMode: Text.WordWrap
@@ -1159,6 +1239,7 @@ Item {
             }
 
             Text {
+              textFormat: Text.PlainText
               width: parent.width
               wrapMode: Text.WordWrap
               text: "Applying saves these choices, updates Zenbu's own marked hotkey block in bindings.lua, and adds or removes the bar icon. Nothing else is touched."
@@ -1180,6 +1261,7 @@ Item {
                 border.width: 1
 
                 Text {
+                  textFormat: Text.PlainText
                   id: applyLabel
                   anchors.centerIn: parent
                   text: root.view === "greeter" ? "Start Zenbu" : "Apply"
@@ -1203,6 +1285,7 @@ Item {
                 color: "transparent"
 
                 Text {
+                  textFormat: Text.PlainText
                   id: cancelLabel
                   anchors.centerIn: parent
                   text: "Cancel"
@@ -1229,6 +1312,7 @@ Item {
           spacing: Style.spacing.md
 
           Text {
+            textFormat: Text.PlainText
             width: parent.width - gearIcon.width - parent.spacing
             anchors.verticalCenter: parent.verticalCenter
             text: "Tab tabs · ↑↓ move · ⏎ act · Esc close"
@@ -1240,6 +1324,7 @@ Item {
           }
 
           Text {
+            textFormat: Text.PlainText
             id: gearIcon
             anchors.verticalCenter: parent.verticalCenter
             text: "󰒓"

@@ -28,6 +28,16 @@ case "$1" in
   bind)
     key="$2"
     [[ -n $key && -f $BIND_FILE ]] || exit 1
+    # This value ends up inside a Lua string in bindings.lua, so it is checked
+    # here as well as in the settings card — settings.json can be edited, or
+    # restored from a backup, without ever going near the UI. A hotkey is
+    # modifiers plus one key and nothing else; anything that does not match that
+    # shape is refused rather than escaped, because there is no reason for it to
+    # exist.
+    if ! [[ $key =~ ^(SUPER|CTRL|ALT|SHIFT)([[:space:]]\+[[:space:]](SUPER|CTRL|ALT|SHIFT))*[[:space:]]\+[[:space:]]([A-Z0-9]|F([1-9]|1[0-2]))$ ]]; then
+      echo "zenbu-ctl: refusing hotkey that is not modifiers plus one key: $key" >&2
+      exit 1
+    fi
     tmp=$(mktemp)
     strip_block > "$tmp"
     {
