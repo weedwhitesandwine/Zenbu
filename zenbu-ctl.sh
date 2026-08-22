@@ -67,24 +67,51 @@ state = sys.argv[1]
 sec = sys.argv[2] if sys.argv[2] in ("left", "center", "right") else "right"
 ID = "io.github.weedwhitesandwine.zenbu"
 p = os.path.expanduser("~/.config/omarchy/shell.json")
+# shell.json belongs to the user, not to this plugin, and it is read back
+# before it is rewritten — so it gets a ceiling at the read, plus the one byte
+# that identifies an over-sized file. Refusing leaves the file exactly as it
+# stands, which is the right answer for one this script cannot make sense of.
+MAX_SHELL_JSON = 4 * 1024 * 1024
 try:
-    d = json.load(open(p))
+    with open(p, "rb") as f:
+        raw = f.read(MAX_SHELL_JSON + 1)
+    if len(raw) > MAX_SHELL_JSON:
+        raise SystemExit
+    d = json.loads(raw.decode("utf-8", "replace"))
 except Exception:
     raise SystemExit
+# Valid JSON of the wrong shape is not a config file, and setdefault will
+# happily hand back a string to be subscripted. Each level is checked.
+if not isinstance(d, dict):
+    raise SystemExit
 def eid(w): return w.get("id") if isinstance(w, dict) else w
-bar = d.setdefault("bar", {})
-lay = bar.setdefault("layout", {})
+if not isinstance(d.get("bar"), dict):
+    d["bar"] = {}
+bar = d["bar"]
+if not isinstance(bar.get("layout"), dict):
+    bar["layout"] = {}
+lay = bar["layout"]
 for s in ("left", "center", "right"):
-    lay.setdefault(s, [])
+    if not isinstance(lay.get(s), list):
+        lay[s] = []
 for s in lay:
-    lay[s] = [w for w in lay[s] if eid(w) != ID]
-d.setdefault("plugins", [])
+    if isinstance(lay[s], list):
+        lay[s] = [w for w in lay[s] if eid(w) != ID]
+if not isinstance(d.get("plugins"), list):
+    d["plugins"] = []
 d["plugins"] = [w for w in d["plugins"] if eid(w) != ID]
 if state == "on":
     lay[sec].append({"id": ID})
 else:
     d["plugins"].append({"id": ID})
-json.dump(d, open(p, "w"), indent=2)
+# Written beside the file and renamed over it. Writing in place truncates the
+# user's shell configuration first and rebuilds it after, so an interruption
+# anywhere in between would leave them with half a config file.
+tmp = p + ".zenbu.tmp"
+with open(tmp, "w") as f:
+    json.dump(d, f, indent=2)
+    f.write("\n")
+os.replace(tmp, p)
 PY
     ;;
 esac
