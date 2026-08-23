@@ -27,22 +27,26 @@ Item {
     'path = sys.argv[1]; ceiling = int(sys.argv[2])',
     'try:',
     '    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)',
+    'except FileNotFoundError:',
+    '    raise SystemExit(2)',
     'except OSError:',
-    '    raise SystemExit',
-    'raw = b""',
+    '    raise SystemExit(1)',
     'try:',
-    '    if stat.S_ISREG(os.fstat(fd).st_mode):',
-    '        with os.fdopen(fd, "rb") as handle:',
-    '            fd = None',
-    '            raw = handle.read(ceiling + 1)',
+    '    if not stat.S_ISREG(os.fstat(fd).st_mode):',
+    '        raise SystemExit(1)',
+    '    with os.fdopen(fd, "rb") as handle:',
+    '        fd = None',
+    '        raw = handle.read(ceiling + 1)',
     'except OSError:',
-    '    raw = b""',
+    '    raise SystemExit(1)',
     'finally:',
     '    if fd is not None:',
     '        os.close(fd)',
-    'if raw and len(raw) <= ceiling:',
-    '    sys.stdout.buffer.write(raw)'
-  ].join("\n")
+    'if len(raw) > ceiling:',
+    '    raise SystemExit(1)',
+    'sys.stdout.buffer.write(raw)'
+  ].join("
+")
 
   property string omarchyPath: Quickshell.env("OMARCHY_PATH")
   property string home: Quickshell.env("HOME")
