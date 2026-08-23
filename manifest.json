@@ -2,10 +2,10 @@
   "schemaVersion": 1,
   "id": "io.github.weedwhitesandwine.zenbu",
   "name": "Zenbu",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "author": "weedwhitesandwine",
   "license": "MIT",
-  "description": "全部 — a theme-aware launcher for everything",
+  "description": "\u5168\u90e8 \u2014 a theme-aware launcher for everything",
   "kinds": [
     "overlay",
     "bar-widget"
@@ -17,7 +17,7 @@
   },
   "barWidget": {
     "displayName": "Zenbu",
-    "description": "全 icon that opens the Zenbu everything-launcher; shown only if enabled in Zenbu's settings",
+    "description": "\u5168 icon that opens the Zenbu everything-launcher; shown only if enabled in Zenbu's settings",
     "category": "System",
     "allowMultiple": false,
     "defaultSection": "right"
