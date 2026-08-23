@@ -2,7 +2,7 @@
 # Zenbu settings helper. Runs ONLY when the user makes a choice in Zenbu's
 # greeter or settings view — never on its own.
 #
-#   zenbu-ctl.sh bind "SUPER + U"   manage Zenbu's hotkey as a marked block
+#   zenbu-ctl.sh bind "<keys>"      manage Zenbu's hotkey as a marked block
 #                                   in ~/.config/hypr/bindings.lua (replaces
 #                                   only its own block, never other lines)
 #   zenbu-ctl.sh unbind             remove that block
