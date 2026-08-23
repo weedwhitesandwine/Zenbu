@@ -15,6 +15,59 @@ BIND_FILE="$HOME/.config/hypr/bindings.lua"
 MARK_IN="-- >>> zenbu hotkey (managed by Zenbu settings — change it there)"
 MARK_OUT="-- <<< zenbu hotkey"
 
+# An opening marker whose terminator is missing used to swallow every line
+# after it: `skip` is only cleared by the closing marker, so an unbalanced
+# block ran to the end of the file and the rest of the user's keybindings were
+# deleted without a word. A block that is not a matched, ordered pair is not a
+# block this script understands.
+# Where bindings.lua really lives. A dotfiles manager (stow, chezmoi) puts a
+# symlink at ~/.config/hypr/bindings.lua pointing into its own repository;
+# staging beside the LINK and renaming over it replaces the link with a plain
+# file, orphaning the repo so every later apply stops reaching Hyprland — and a
+# stage file on another filesystem turns the rename into a non-atomic copy.
+# Resolving first means the write lands on the real file, in its own directory,
+# and the link survives. Target and directory must both be the user's and
+# writable by nobody else.
+resolve_bind_file() {
+  local real dir mode
+  real=$(realpath -- "$BIND_FILE" 2>/dev/null) || return 1
+  [[ -f $real ]] || return 1
+  dir=$(dirname -- "$real")
+  if [[ ! -O $real || ! -O $dir ]]; then
+    echo "refusing to write $real — it is not yours" >&2
+    return 1
+  fi
+  mode=$(stat -c %a -- "$dir" 2>/dev/null) || return 1
+  if (( 8#$mode & 8#022 )); then
+    echo "refusing to write into $dir — it is writable by others" >&2
+    return 1
+  fi
+  printf '%s' "$real"
+}
+
+check_markers() {
+  local opens closes o c
+  opens=$(grep -c -- ">>> zenbu hotkey" "$BIND_FILE" || true)
+  closes=$(grep -c -- "<<< zenbu hotkey" "$BIND_FILE" || true)
+  if (( opens != closes )); then
+    echo "zenbu-ctl: refusing to edit $BIND_FILE — its hotkey block is not a matched pair ($opens opening, $closes closing)" >&2
+    return 1
+  fi
+  if (( opens > 1 )); then
+    echo "zenbu-ctl: refusing to edit $BIND_FILE — $opens hotkey blocks, expected at most one" >&2
+    return 1
+  fi
+  if (( opens == 1 )); then
+    o=$(grep -n -- ">>> zenbu hotkey" "$BIND_FILE" | head -1 | cut -d: -f1)
+    c=$(grep -n -- "<<< zenbu hotkey" "$BIND_FILE" | head -1 | cut -d: -f1)
+    if (( c < o )); then
+      echo "zenbu-ctl: refusing to edit $BIND_FILE — its hotkey block closes before it opens" >&2
+      return 1
+    fi
+  fi
+  return 0
+}
+
 strip_block() {
   # print bindings.lua without Zenbu's marked block
   awk -v a="$MARK_IN" -v b="$MARK_OUT" '
@@ -34,7 +87,15 @@ case "$1" in
     # modifiers plus one key and nothing else; anything that does not match that
     # shape is refused rather than escaped, because there is no reason for it to
     # exist.
-    if ! [[ $key =~ ^(SUPER|CTRL|ALT|SHIFT)([[:space:]]\+[[:space:]](SUPER|CTRL|ALT|SHIFT))*[[:space:]]\+[[:space:]]([A-Z0-9]|F([1-9]|1[0-2])|SPACE|RETURN|ENTER|TAB|ESCAPE|BACKSPACE|DELETE|INSERT|HOME|END|PAGE_UP|PAGE_DOWN|UP|DOWN|LEFT|RIGHT|COMMA|PERIOD|SLASH|MINUS|EQUAL|SEMICOLON|APOSTROPHE|GRAVE|BRACKETLEFT|BRACKETRIGHT|BACKSLASH)$ ]]; then
+    # The shape a hotkey may have, held in a variable because it contains
+# spaces — and it must contain literal spaces, not [[:space:]], which
+# also matches a newline and a tab. The settings card checks a literal
+# space, so anything looser here is a gap between the two guards: a
+# newline passed this check, was refused by that one, and reached
+# bindings.lua as an unterminated Lua string that cost the user every
+# keybinding in the file on the next reload.
+KEY_SHAPE='^(SUPER|CTRL|ALT|SHIFT)( \+ (SUPER|CTRL|ALT|SHIFT))* \+ ([A-Z0-9]|F([1-9]|1[0-2])|SPACE|RETURN|ENTER|TAB|ESCAPE|BACKSPACE|DELETE|INSERT|HOME|END|PAGE_UP|PAGE_DOWN|UP|DOWN|LEFT|RIGHT|COMMA|PERIOD|SLASH|MINUS|EQUAL|SEMICOLON|APOSTROPHE|GRAVE|BRACKETLEFT|BRACKETRIGHT|BACKSLASH)$'
+if ! [[ $key =~ $KEY_SHAPE ]]; then
       echo "zenbu-ctl: refusing hotkey that is not modifiers plus one key: $key" >&2
       exit 1
     fi
@@ -43,8 +104,10 @@ case "$1" in
     # /tmp and mv-ing across filesystems degrades to a copy, which can leave
     # a half-written config if interrupted. mktemp creates the stage file
     # exclusively under a random name, so nothing can have been planted at it.
-    tmp=$(mktemp "$BIND_FILE.XXXXXXXX")
+    REAL_BIND=$(resolve_bind_file) || exit 1
+    tmp=$(mktemp "$REAL_BIND.XXXXXXXX")
     trap 'rm -f "$tmp"' EXIT
+    check_markers || exit 1
     strip_block > "$tmp"
     {
       echo ""
@@ -52,18 +115,20 @@ case "$1" in
       printf 'o.bind("%s", "Zenbu (everything launcher)", "omarchy-shell shell toggle %s")\n' "$key" "$ID"
       echo "$MARK_OUT"
     } >> "$tmp"
-    chmod --reference="$BIND_FILE" "$tmp" 2>/dev/null || chmod 644 "$tmp"
-    mv -f "$tmp" "$BIND_FILE"
+    chmod --reference="$REAL_BIND" "$tmp" 2>/dev/null || chmod 644 "$tmp"
+    mv -f "$tmp" "$REAL_BIND"
     trap - EXIT
     hyprctl reload >/dev/null 2>&1 || true
     ;;
   unbind)
     [[ -f $BIND_FILE ]] || exit 0
-    tmp=$(mktemp "$BIND_FILE.XXXXXXXX")
+    REAL_BIND=$(resolve_bind_file) || exit 1
+    tmp=$(mktemp "$REAL_BIND.XXXXXXXX")
     trap 'rm -f "$tmp"' EXIT
+    check_markers || exit 1
     strip_block > "$tmp"
-    chmod --reference="$BIND_FILE" "$tmp" 2>/dev/null || chmod 644 "$tmp"
-    mv -f "$tmp" "$BIND_FILE"
+    chmod --reference="$REAL_BIND" "$tmp" 2>/dev/null || chmod 644 "$tmp"
+    mv -f "$tmp" "$REAL_BIND"
     trap - EXIT
     hyprctl reload >/dev/null 2>&1 || true
     ;;
