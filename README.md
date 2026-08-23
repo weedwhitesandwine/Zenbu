@@ -102,8 +102,13 @@ What Zenbu writes, and when:
   only Zenbu's entry is ever touched, and the shell reloads the file
   automatically.
 
-Nothing runs on a timer, nothing runs privileged, and nothing is changed
-until you explicitly apply it in the greeter or settings.
+Every one of those writes is staged under an exclusively-created temporary
+name beside the destination and renamed over it in one atomic step, so an
+interruption never leaves a half-written file and a symlink planted at any
+of those names is never written through.
+
+Nothing runs on a timer, and nothing is changed until you explicitly apply
+it in the greeter or settings.
 
 ## Uninstall
 
