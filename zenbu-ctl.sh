@@ -108,7 +108,14 @@ if ! [[ $key =~ $KEY_SHAPE ]]; then
     tmp=$(mktemp "$REAL_BIND.XXXXXXXX")
     trap 'rm -f "$tmp"' EXIT
     check_markers || exit 1
-    strip_block > "$tmp"
+    # strip_block leaves the blank line that preceded the block behind, and
+    # the block below adds another — so every rebind grew the file by one
+    # empty line for ever. Trailing blanks are trimmed before the new block
+    # goes on, which also tidies the ones already accumulated.
+    strip_block | awk 'BEGIN { n = 0 }
+      /^[[:space:]]*$/ { n++; next }
+      { while (n-- > 0) print ""; n = 0; print }
+    ' > "$tmp"
     {
       echo ""
       echo "$MARK_IN"
@@ -139,6 +146,14 @@ if ! [[ $key =~ $KEY_SHAPE ]]; then
     # lives in the plugins list instead. The shell hot-reloads the file.
     python3 - "$2" "${3:-right}" <<'PY'
 import json, os, stat, sys, tempfile
+
+
+def fail(why):
+    """Say what went wrong. Every one of these was a silent exit 0, and the
+    settings card reported the icon shown or hidden either way."""
+    sys.stderr.write(why + "\n")
+    raise SystemExit(1)
+
 state = sys.argv[1]
 sec = sys.argv[2] if sys.argv[2] in ("left", "center", "right") else "right"
 ID = "io.github.weedwhitesandwine.zenbu"
@@ -150,28 +165,33 @@ p = os.path.expanduser("~/.config/omarchy/shell.json")
 # The open refuses symlinks and non-regular files, so a planted link cannot
 # redirect the read and a FIFO cannot block it forever.
 MAX_SHELL_JSON = 4 * 1024 * 1024
-try:
-    fd = os.open(p, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+# No file at all is first run, and an empty config is the honest starting
+# point. A file that EXISTS but cannot be read is a different thing entirely,
+# and writing over it would destroy settings this plugin does not own.
+d = {}
+if os.path.exists(p):
     try:
-        if not stat.S_ISREG(os.fstat(fd).st_mode):
-            raise SystemExit
-        with os.fdopen(fd, "rb") as f:
-            fd = None
-            raw = f.read(MAX_SHELL_JSON + 1)
-    finally:
-        if fd is not None:
-            os.close(fd)
-    if len(raw) > MAX_SHELL_JSON:
-        raise SystemExit
-    d = json.loads(raw.decode("utf-8", "replace"))
-except SystemExit:
-    raise
-except Exception:
-    raise SystemExit
+        fd = os.open(p, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+        try:
+            if not stat.S_ISREG(os.fstat(fd).st_mode):
+                fail("%s is not a plain file" % p)
+            with os.fdopen(fd, "rb") as f:
+                fd = None
+                raw = f.read(MAX_SHELL_JSON + 1)
+        finally:
+            if fd is not None:
+                os.close(fd)
+        if len(raw) > MAX_SHELL_JSON:
+            fail("%s is larger than the ceiling" % p)
+        d = json.loads(raw.decode("utf-8", "replace"))
+    except SystemExit:
+        raise
+    except Exception as e:
+        fail("could not read %s: %s" % (p, e))
 # Valid JSON of the wrong shape is not a config file, and setdefault will
 # happily hand back a string to be subscripted. Each level is checked.
 if not isinstance(d, dict):
-    raise SystemExit
+    fail("%s is not a JSON object" % p)
 def eid(w): return w.get("id") if isinstance(w, dict) else w
 if not isinstance(d.get("bar"), dict):
     d["bar"] = {}
@@ -185,6 +205,10 @@ for s in ("left", "center", "right"):
 for s in lay:
     if isinstance(lay[s], list):
         lay[s] = [w for w in lay[s] if eid(w) != ID]
+# The shell only honours a user shell.json that says which schema it is.
+# Without it the file it just wrote could be ignored wholesale.
+if not isinstance(d.get("version"), int):
+    d["version"] = 1
 if not isinstance(d.get("plugins"), list):
     d["plugins"] = []
 d["plugins"] = [w for w in d["plugins"] if eid(w) != ID]
@@ -202,9 +226,9 @@ home_cfg = os.path.dirname(p)
 try:
     st = os.stat(home_cfg)
     if st.st_uid != os.getuid() or (st.st_mode & 0o022):
-        raise SystemExit
-except OSError:
-    raise SystemExit
+        fail("%s is not owner-only" % home_cfg)
+except OSError as e:
+    fail("could not check %s: %s" % (home_cfg, e))
 fd, tmp = tempfile.mkstemp(prefix=".shell.json.", suffix=".tmp", dir=home_cfg)
 try:
     with os.fdopen(fd, "w") as f:

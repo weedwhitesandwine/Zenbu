@@ -16,6 +16,24 @@ Ui.BarWidget {
   implicitWidth: button.implicitWidth
   implicitHeight: button.implicitHeight
 
+  // Keep the overlay's idea of the bar current — it cannot see the bar itself.
+  function publishBar() {
+    if (!root.bar) { ZenbuState.barKnown = false; return }
+    ZenbuState.barPosition = root.bar.position !== undefined ? root.bar.position : "top"
+    ZenbuState.barSize = root.bar.barSize !== undefined ? root.bar.barSize : 0
+    ZenbuState.barHidden = root.bar.barHidden === true
+    ZenbuState.barKnown = true
+  }
+  onBarChanged: publishBar()
+  Component.onCompleted: publishBar()
+  Connections {
+    target: root.bar
+    ignoreUnknownSignals: true
+    function onPositionChanged() { root.publishBar() }
+    function onBarHiddenChanged() { root.publishBar() }
+    function onBarSizeChanged() { root.publishBar() }
+  }
+
   function anchorCenterX() {
     var g = button.mapToItem(null, button.width / 2, 0)
     return g.x

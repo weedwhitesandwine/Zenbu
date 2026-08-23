@@ -132,6 +132,16 @@ Item {
   property string view: "list"
   property real anchorX: -1
 
+  // How far down the card has to start to clear the bar: the bar's own height
+  // when it is along the top and showing, and nothing otherwise. A left or
+  // right bar takes no vertical room; a hidden one takes none either.
+  readonly property real barDrop: {
+    if (!ZenbuState.barKnown) return Style.space(46)
+    if (ZenbuState.barHidden) return Style.gapsOut
+    if (ZenbuState.barPosition !== "top") return Style.gapsOut
+    return (ZenbuState.barSize > 0 ? ZenbuState.barSize : Style.space(38)) + Style.gapsOut
+  }
+
   property string draftMode: "center"
   property bool draftBarIcon: false
   property string draftBarSection: "right"
@@ -216,14 +226,31 @@ Item {
     else if (event.key >= Qt.Key_0 && event.key <= Qt.Key_9) name = String.fromCharCode(48 + (event.key - Qt.Key_0))
     else if (event.key >= Qt.Key_F1 && event.key <= Qt.Key_F12) name = "F" + (event.key - Qt.Key_F1 + 1)
     if (name === "") return
+    if (mods.length === 1 && mods[0] === "SHIFT") {
+      root.captureNote = "Shift on its own is not enough — hold SUPER, CTRL or ALT too"
+      return
+    }
     if (mods.length === 0) { root.captureNote = "Add a modifier — SUPER, CTRL or ALT"; return }
     root.draftShortcut = mods.join(" + ") + " + " + name
     root.captureNote = ""
     root.capturing = false
   }
 
+  // The expression a running calculation was asked of.
+  property string calcSent: ""
+
   // -------------------------------------------------------------- lifecycle
+
+  // Recording swallows every keystroke by design. Closing the launcher
+  // mid-recording used to leave that flag set, so the next time it opened it
+  // ate everything typed at it with nothing on screen to explain why.
+  function stopCapture() {
+    root.capturing = false
+    root.captureNote = ""
+  }
+
   function open(payloadJson) {
+    root.stopCapture()
     root.opened = true
     // Always start on Apps, whatever tab was showing when it was last closed.
     root.tabIndex = 0
@@ -242,10 +269,17 @@ Item {
 
   function openAt(x) {
     root.anchorX = x
+    root.lastAnchorX = x
     root.open("{}")
   }
 
-  function close() { root.opened = false }
+  // Remembered, so a summon from the hotkey drops from where the icon is
+  // rather than from the middle of the screen until the icon has been clicked
+  // once. Still -1 on a machine that has never shown the icon, which falls
+  // back to centred — the only sensible answer when there is no icon.
+  property real lastAnchorX: -1
+
+  function close() { root.stopCapture(); root.opened = false }
 
   function dismiss() {
     root.opened = false
@@ -574,11 +608,16 @@ Item {
                   "--exclude", ".local/share/Trash", "--exclude", "__pycache__",
                   "--exclude", "site-packages", "--exclude", "Backups",
                   "--exclude", ".local/share/nvim"]
+      // The hidden-files setting applies to the plain home listing too;
+      // without it the setting appeared to do nothing until you typed.
+      if (root.zsettings.hiddenFiles !== false) args.push("--hidden")
       if (root.filterText.trim() === "") args = args.concat(["--max-depth", "1"])
       else {
         if (root.zsettings.systemFiles === true)
           args = args.concat(["--search-path", "/usr", "--search-path", "/etc", "--search-path", "/opt"])
-        if (root.zsettings.hiddenFiles !== false) args.push("--hidden")
+        // Everything after `--` is the pattern, never an option. Typing "-h"
+        // in Files otherwise ran fd's help and rendered it as a list of files.
+        args.push("--")
         args.push(root.filterText.trim())
       }
       fdProc.command = args
@@ -633,7 +672,8 @@ Item {
     interval: 140
     onTriggered: {
       if (root.tab !== "calc" || !root.opened || !root.filterText.trim() || !root.qalcAvailable) return
-      calcProc.command = ["qalc", "-t", root.filterText]
+      root.calcSent = root.filterText
+      calcProc.command = ["qalc", "-t", "--", root.filterText]
       calcProc.running = false
       calcProc.running = true
     }
@@ -645,8 +685,11 @@ Item {
       id: calcOut
       waitForEnd: true
       onStreamFinished: {
+        // Stamped with the expression that was SENT, not whatever has been
+        // typed since — otherwise a slow answer is shown, and copied on
+        // Enter, as the result of a different sum.
         root.calcResult = String(calcOut.text || "").trim()
-        root.calcExpr = root.filterText
+        root.calcExpr = root.calcSent
         if (root.opened && root.tab === "calc") root.rows = root.calcRows()
       }
     }
@@ -772,9 +815,11 @@ Item {
 
         PropertyChanges {
           target: card
-          anchors.topMargin: Style.space(46)
+          anchors.topMargin: root.barDrop
           x: Math.max(Style.gapsOut, Math.min(panel.width - card.width - Style.gapsOut,
-               (root.anchorX >= 0 ? root.anchorX : panel.width / 2) - card.width / 2))
+               (root.anchorX >= 0 ? root.anchorX
+                : root.lastAnchorX >= 0 ? root.lastAnchorX
+                : panel.width / 2) - card.width / 2))
         }
       }
       color: root.background
@@ -1412,6 +1457,10 @@ Item {
         anchors { right: parent.right; top: parent.top; bottom: parent.bottom }
       }
       ResizeHandle {
+        // The dropdown is pinned under the bar icon, so its top edge cannot
+        // move: dragging it up grew the card downward, away from the pointer.
+        enabled: !root.dropdown
+        visible: !root.dropdown
         edgeY: -1
         height: 8
         anchors { top: parent.top; left: parent.left; right: parent.right }
@@ -1422,6 +1471,10 @@ Item {
         anchors { bottom: parent.bottom; left: parent.left; right: parent.right }
       }
       ResizeHandle {
+        // The dropdown is pinned under the bar icon, so its top edge cannot
+        // move: dragging it up grew the card downward, away from the pointer.
+        enabled: !root.dropdown
+        visible: !root.dropdown
         edgeX: -1
         edgeY: -1
         width: 16
@@ -1429,6 +1482,10 @@ Item {
         anchors { left: parent.left; top: parent.top }
       }
       ResizeHandle {
+        // The dropdown is pinned under the bar icon, so its top edge cannot
+        // move: dragging it up grew the card downward, away from the pointer.
+        enabled: !root.dropdown
+        visible: !root.dropdown
         edgeX: 1
         edgeY: -1
         width: 16
