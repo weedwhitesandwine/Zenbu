@@ -31,7 +31,10 @@ and what clicking an emoji does. Every choice can be changed later from the
   and `/opt`. Enter opens with the default app. An empty search shows
   your home folder.
 - **Calc** — a live calculator and unit converter on the full qalculate
-  engine: `35kg to lbs`, `15% * 4300`, `sqrt(2)`. Enter copies the result.
+  engine: `6 feet to meters`, `15% * 4300`, `sqrt(2)`. Enter copies the
+  result. `100 euros in jpy` works as well as `to`, and currency answers
+  carry the date of the rates they were worked out from — see
+  [Exchange rates](#exchange-rates).
 - **Windows** — every open window; Enter focuses it.
 - **SSH** — the hosts from your `~/.ssh/config`; Enter connects in a
   terminal.
@@ -79,6 +82,25 @@ then on your own hotkey and/or the icon summon it.
 - SSH connections open in your own terminal (whatever Omarchy is
   configured to use) — no specific terminal required.
 
+## Exchange rates
+
+qalculate answers currency conversions from a rates file, and libqalculate
+ships one inside its own package — so on a fresh install `100 euros to jpy`
+is worked out from whatever the rates were on the day your distribution
+built that package, which can be months old.
+
+Zenbu reads the date out of that file and prints it beside the answer
+(`rates 6 Jul`), so a stale rate is always labelled as one. That happens
+with the packaged file and needs nothing from you.
+
+Refreshing it is a separate choice. Set **Exchange rates** to *refresh
+daily* in settings and Zenbu runs `qalc -e` once per session, the first
+time you open the Calc tab, when the rates on disk are older than today.
+That is qalculate's own updater: it fetches from the European Central Bank
+and writes qalculate's rates files in `~/.local/share/qalculate/`, which
+then take precedence over the packaged copy. The setting starts at
+*packaged*, so this only ever happens after you turn it on.
+
 ## How it works
 
 Zenbu is a Quickshell overlay running inside the Omarchy shell. Colors,
@@ -102,10 +124,22 @@ What Zenbu writes, and when:
   only Zenbu's entry is ever touched, and the shell reloads the file
   automatically.
 
+- When you have set **Exchange rates** to *refresh daily* (and only then),
+  `qalc -e` runs once per session on first opening the Calc tab, if the
+  rates on disk predate today. It is qalculate's own updater: it reaches
+  the European Central Bank for current rates and writes qalculate's rates
+  files in `~/.local/share/qalculate/`. The setting ships as *packaged*.
+
 Every one of those writes is staged under an exclusively-created temporary
 name beside the destination and renamed over it in one atomic step, so an
 interruption never leaves a half-written file and a symlink planted at any
 of those names is never written through.
+
+The commands Zenbu runs are `fd` (file search), `qalc` (Calc tab, capped at
+half a second per calculation, and `qalc -e` for the refresh above),
+`python3` (reading files to a byte ceiling), `wl-copy`, `bash` for the
+bundled `zenbu-ctl.sh`, and your terminal for an SSH connection. Each is
+started on demand and exits on its own.
 
 Nothing runs on a timer, and nothing is changed until you explicitly apply
 it in the greeter or settings.
@@ -123,3 +157,5 @@ omarchy plugin remove io.github.weedwhitesandwine.zenbu
 ## License
 
 MIT
+
+Built with [Claude Code](https://claude.com/claude-code).

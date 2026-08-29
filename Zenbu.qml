@@ -125,7 +125,7 @@ Item {
     return decodeURIComponent(u.replace(/^file:\/\//, "")).replace(/\/$/, "")
   }
   readonly property string settingsFile: root.home + "/.local/state/zenbu/settings.json"
-  property var zsettings: ({ greeted: false, mode: "center", barIcon: false, barSection: "right", shortcut: "", emojiAction: "both", hiddenFiles: true, systemFiles: false })
+  property var zsettings: ({ greeted: false, mode: "center", barIcon: false, barSection: "right", shortcut: "", emojiAction: "both", hiddenFiles: true, systemFiles: false, rates: "off" })
   readonly property bool dropdown: zsettings.mode === "dropdown"
 
   // "list" is the launcher; "greeter" shows on first run; "settings" via ⚙.
@@ -149,6 +149,7 @@ Item {
   property string draftShortcut: ""
   property bool draftHiddenFiles: true
   property bool draftSystemFiles: false
+  property string draftRates: "off"
   property bool capturing: false
   property string captureNote: ""
 
@@ -173,6 +174,7 @@ Item {
                          ? root.zsettings.shortcut : ""
     root.draftHiddenFiles = root.zsettings.hiddenFiles !== false
     root.draftSystemFiles = root.zsettings.systemFiles === true
+    root.draftRates = root.zsettings.rates === "daily" ? "daily" : "off"
     root.capturing = false
     root.captureNote = ""
   }
@@ -187,7 +189,8 @@ Item {
       emojiAction: root.draftEmojiAction,
       shortcut: root.draftShortcut,
       hiddenFiles: root.draftHiddenFiles,
-      systemFiles: root.draftSystemFiles
+      systemFiles: root.draftSystemFiles,
+      rates: root.draftRates
     }
     root.zsettings = s
     root.saveSettings()
@@ -325,7 +328,13 @@ Item {
     else if (t === "windows") root.rows = root.windowRows()
     else if (t === "ssh") root.rows = root.sshRows()
     else if (t === "files") { root.rows = root.fileRows; fdDebounce.restart() }
-    else if (t === "calc") { root.rows = root.calcRows(); calcDebounce.restart() }
+    else if (t === "calc") {
+      root.rows = root.calcRows()
+      calcDebounce.restart()
+      // Lazily, and once per Zenbu run: nobody should pay a file read — or, if
+      // they enabled it, a network call — merely for launching an app.
+      if (!root.ratesChecked) { root.ratesChecked = true; root.readRates(true) }
+    }
     listView.positionViewAtBeginning()
   }
 
@@ -409,10 +418,17 @@ Item {
   function calcRows() {
     if (!root.qalcAvailable)
       return [{ label: "Calc needs the qalc calculator", sub: "Install it once:  omarchy pkg add libqalculate", icon: "", glyph: "󰃬", hint: "" }]
-    if (!root.filterText.trim())
-      return [{ label: "Type a calculation…", sub: "35kg to lbs · 15% * 4300 · sqrt(2) · 8*7+12", icon: "", glyph: "󰃬", hint: "" }]
-    if (root.calcResult && root.calcExpr === root.filterText)
-      return [{ label: root.calcResult, sub: root.filterText, icon: "", glyph: "=", hint: "copy", copyText: root.calcResult }]
+    if (!root.filterText.trim() || !root.looksCalculable(root.filterText))
+      return [{ label: "Type a calculation…", sub: "6 feet to meters · 100 euros to jpy · 20 celsius to fahrenheit · sqrt(2)", icon: "", glyph: "󰃬", hint: "" }]
+    if (root.calcResult && root.calcExpr === root.filterText) {
+      // Money is only as current as the rates file behind it, so the answer
+      // carries its date. Everything else converts from constants and needs no
+      // such caveat.
+      var sub = root.filterText
+      if (root.isCurrencyResult(root.calcResult) && root.ratesLabel)
+        sub += "   ·   rates " + root.ratesLabel
+      return [{ label: root.calcResult, sub: sub, icon: "", glyph: "=", hint: "copy", copyText: root.calcResult }]
+    }
     return [{ label: "…", sub: root.filterText, icon: "", glyph: "=", hint: "" }]
   }
 
@@ -667,13 +683,64 @@ Item {
     onExited: function(code) { root.qalcAvailable = code === 0 }
   }
 
+  // qalc reads a trailing "in" as inches, so every "<amount> in <unit>" comes
+  // back as an area or a volume: "6 feet in meters" is 0.04645152 m³ (feet
+  // times inches times metres) and "1 hour in minutes" is 5.4864 kg/mPa. It is
+  // the phrasing most people reach for first, so it cannot be left to qalc.
+  // Rewrite only the LAST "in" of "<expr> in <unit words>" to "to": the greedy
+  // prefix keeps "3 in in cm" as "3 in to cm", so a real inches operand
+  // survives, and a tail holding digits or operators ("2 in + 3 cm") never
+  // matches at all.
+  function calcNormalize(expr) {
+    return expr.replace(/^(.*)\sin\s+([A-Za-z€$¥£₩ ]+)$/, "$1 to $2")
+  }
+
+  // qalc parses any bare word as a product of units and prefixes, so "asdfgh"
+  // answers "311.04 rg·s³" with the same confidence as a real sum. It also
+  // exits 0 and prints a result whatever it was given, so there is no error to
+  // detect after the fact — the guard has to be here, before it is asked.
+  // Anything holding a digit or an operator is a calculation; a bare word is
+  // only one if it names a constant qalc would recognise on its own.
+  readonly property var calcConstants: ["pi", "e", "tau", "phi", "golden"]
+  function looksCalculable(expr) {
+    var t = String(expr).trim()
+    if (!t) return false
+    if (/[0-9]/.test(t)) return true
+    if (/[+\-*\/^%()]/.test(t)) return true
+    return root.calcConstants.indexOf(t.toLowerCase()) >= 0
+  }
+
+  // Whether an answer is money, and so whether the rate date below applies to
+  // it. qalc does not say, so this reads the shape of its output: a leading
+  // currency symbol, or a trailing three-letter code. It answers no when it is
+  // unsure — an un-annotated exchange rate is a small loss, "rates 28 Aug"
+  // stapled to sqrt(2) is a wrong statement.
+  function isCurrencyResult(res) {
+    var s = String(res || "").trim()
+    if (!s) return false
+    return /^[¥$€£₩₹₽¢]/.test(s) || /\b[A-Z]{3}$/.test(s)
+  }
+
   Timer {
     id: calcDebounce
     interval: 140
     onTriggered: {
       if (root.tab !== "calc" || !root.opened || !root.filterText.trim() || !root.qalcAvailable) return
+      if (!root.looksCalculable(root.filterText)) {
+        root.calcResult = ""
+        root.calcExpr = ""
+        root.rows = root.calcRows()
+        return
+      }
       root.calcSent = root.filterText
-      calcProc.command = ["qalc", "-t", "--", root.filterText]
+      // -m caps the calculation at half a second. Without it "(10^9)!" never
+      // returns, and nothing here kills it: the process would sit pegged in
+      // the background for the rest of the shell's life, one per keystroke.
+      // -m bounds the calculation; `timeout` bounds the process. They are not
+      // the same wall — -m does not cover qalc's own startup, and this runs on
+      // every keystroke inside a shell that stays up for days.
+      calcProc.command = ["timeout", "5", "qalc", "-m", "500", "-t", "--",
+                          root.calcNormalize(root.filterText)]
       calcProc.running = false
       calcProc.running = true
     }
@@ -692,6 +759,114 @@ Item {
         root.calcExpr = root.calcSent
         if (root.opened && root.tab === "calc") root.rows = root.calcRows()
       }
+    }
+  }
+
+  // ------------------------------------------------------- exchange rates
+  // qalc answers currency conversions from a rates file, and libqalculate
+  // ships one inside the package — so a fresh install converts money using
+  // whatever the rates were on the day the distribution built it, to ten
+  // decimal places, with nothing on screen to say so. Zenbu reads the date out
+  // of that file and prints it beside the answer. Refreshing it is a separate,
+  // opt-in thing below; the date is shown either way, which is the part that
+  // stops a stale number from being presented as a live one.
+  //
+  // A user-owned file in ~/.local/share takes precedence over the packaged one
+  // in /usr/share — verified by fetching once and watching 100 EUR move from
+  // ¥18531 (packaged, 2026-07-06) to ¥18592 (fetched, 2026-08-28).
+  readonly property string userRatesFile: root.home + "/.local/share/qalculate/eurofxref-daily.xml"
+  readonly property string sysRatesFile: "/usr/share/qalculate/eurofxref-daily.xml"
+  readonly property int ratesCeiling: 256 * 1024
+  property string ratesDate: ""
+  property bool ratesReadingUser: false
+  property bool ratesChecked: false
+  property bool ratesFetched: false
+
+  readonly property var ratesMonths: ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                                      "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+  readonly property string ratesLabel: {
+    var m = String(root.ratesDate).match(/^(\d{4})-(\d{2})-(\d{2})$/)
+    if (!m) return ""
+    var mi = parseInt(m[2], 10) - 1
+    if (mi < 0 || mi > 11) return ""
+    return parseInt(m[3], 10) + " " + root.ratesMonths[mi]
+  }
+
+  property string ratesRaw: ""
+  property int ratesExit: -1
+  property bool ratesTextIn: false
+
+  function readRates(fromUser) {
+    root.ratesReadingUser = fromUser
+    root.ratesRaw = ""
+    root.ratesExit = -1
+    root.ratesTextIn = false
+    ratesReader.command = ["python3", "-c", root.safeRead,
+                           fromUser ? root.userRatesFile : root.sysRatesFile,
+                           String(root.ratesCeiling)]
+    ratesReader.running = false
+    ratesReader.running = true
+  }
+
+  // The exit code and the output arrive on two signals with no guaranteed
+  // order between them, so the decision waits until both are in.
+  function ratesSettle() {
+    if (!root.ratesTextIn || root.ratesExit < 0) return
+    var m = String(root.ratesRaw).match(/time='(\d{4}-\d{2}-\d{2})'/)
+    if (m) {
+      root.ratesDate = m[1]
+      if (root.opened && root.tab === "calc") root.rows = root.calcRows()
+      root.maybeFetchRates()
+      return
+    }
+    // Fall back to the packaged file ONLY when the user's copy is genuinely
+    // absent (safeRead exits 2). If it is there but was refused — a symlink, a
+    // FIFO, past the ceiling — or holds no date, then qalc may be reading it
+    // and this has no idea what rates the answer used. Showing the packaged
+    // date there would be a confident false statement, which is the one thing
+    // this annotation exists to prevent, so it says nothing instead.
+    if (root.ratesReadingUser && root.ratesExit === 2) { root.readRates(false); return }
+    root.maybeFetchRates()
+  }
+
+  Process {
+    id: ratesReader
+    stdout: StdioCollector {
+      id: ratesOut
+      waitForEnd: true
+      onStreamFinished: {
+        root.ratesRaw = String(ratesOut.text || "")
+        root.ratesTextIn = true
+        root.ratesSettle()
+      }
+    }
+    onExited: function(code) { root.ratesExit = code; root.ratesSettle() }
+  }
+
+  // Off unless the user turned it on in settings. Zenbu is a launcher; opening
+  // it must not reach the network on its own, and the packaged rates still
+  // answer with their date shown. Once per Zenbu run, never on the keystroke
+  // path, and silent on failure — an unreachable ECB leaves the old date on
+  // screen, which is already the honest answer.
+  function maybeFetchRates() {
+    if (root.ratesFetched) return
+    if ((root.zsettings.rates || "off") !== "daily") return
+    var today = Qt.formatDate(new Date(), "yyyy-MM-dd")
+    if (root.ratesDate && root.ratesDate >= today) return
+    root.ratesFetched = true
+    ratesProc.running = false
+    ratesProc.running = true
+  }
+
+  Process {
+    id: ratesProc
+    // qalc -e downloads and exits; the trivial expression is only there to
+    // give it something to do afterwards. `timeout` is the wall-clock bound —
+    // this is off the typing path, but a hung fetch should still not outlive
+    // the answer it was meant to improve.
+    command: ["timeout", "20", "qalc", "-e", "-t", "--", "1+1"]
+    onExited: function(code) {
+      if (code === 0) root.readRates(true)
     }
   }
 
@@ -1288,6 +1463,38 @@ Item {
                 textFormat: Text.PlainText
                 anchors.verticalCenter: parent.verticalCenter
                 text: "in file search — like ~/.config"
+                color: root.foreground
+                opacity: 0.55
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.caption
+              }
+            }
+
+            Row {
+              spacing: Style.spacing.md
+
+              SettingLabel { text: "Exchange rates" }
+
+              Row {
+                spacing: Style.space(4)
+
+                SettingPill {
+                  label: "packaged"
+                  active: root.draftRates !== "daily"
+                  onPicked: root.draftRates = "off"
+                }
+
+                SettingPill {
+                  label: "refresh daily"
+                  active: root.draftRates === "daily"
+                  onPicked: root.draftRates = "daily"
+                }
+              }
+
+              Text {
+                textFormat: Text.PlainText
+                anchors.verticalCenter: parent.verticalCenter
+                text: "refreshing fetches from the European Central Bank"
                 color: root.foreground
                 opacity: 0.55
                 font.family: root.fontFamily
