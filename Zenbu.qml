@@ -816,7 +816,7 @@ Item {
     if (m) {
       root.ratesDate = m[1]
       if (root.opened && root.tab === "calc") root.rows = root.calcRows()
-      root.maybeFetchRates()
+      root.checkRatesStamp()
       return
     }
     // Fall back to the packaged file ONLY when the user's copy is genuinely
@@ -826,7 +826,73 @@ Item {
     // date there would be a confident false statement, which is the one thing
     // this annotation exists to prevent, so it says nothing instead.
     if (root.ratesReadingUser && root.ratesExit === 2) { root.readRates(false); return }
+    root.checkRatesStamp()
+  }
+
+  // The ECB publishes on TARGET business days only, and posts each day's fix at
+  // around 16:00 CET — so for most of the week the date INSIDE the file is
+  // legitimately older than today. Gating the fetch on that date meant a
+  // download every Saturday, every Sunday, every holiday and every weekday
+  // morning, each one writing back a file carrying the date it already had.
+  // What decides whether there is anything to fetch is when the file was last
+  // WRITTEN, so that is what is asked.
+  //
+  // Stat through a descriptor opened O_NOFOLLOW, for the same reason every
+  // read here does: the path sits in a directory this plugin does not own, and
+  // a symlink planted at it should be refused rather than followed.
+  readonly property string safeStamp: [
+    'import os, stat, sys, time',
+    'try:',
+    '    fd = os.open(sys.argv[1], os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)',
+    'except OSError:',
+    '    raise SystemExit(1)',
+    'try:',
+    '    st = os.fstat(fd)',
+    'finally:',
+    '    os.close(fd)',
+    'if not stat.S_ISREG(st.st_mode):',
+    '    raise SystemExit(1)',
+    'sys.stdout.write(time.strftime("%Y-%m-%d", time.localtime(st.st_mtime)))'
+  ].join("\n")
+
+  property string ratesStamp: ""
+  property int stampExit: -1
+  property bool stampTextIn: false
+
+  function checkRatesStamp() {
+    if (root.ratesFetched) return
+    if ((root.zsettings.rates || "off") !== "daily") return
+    root.ratesStamp = ""
+    root.stampExit = -1
+    root.stampTextIn = false
+    stampReader.command = ["python3", "-c", root.safeStamp, root.userRatesFile]
+    stampReader.running = false
+    stampReader.running = true
+  }
+
+  // Same two-signal wait as ratesSettle: the output and the exit code arrive
+  // independently, and deciding on either alone reads an empty stamp as "never
+  // fetched" half the time.
+  function stampSettle() {
+    if (!root.stampTextIn || root.stampExit < 0) return
     root.maybeFetchRates()
+  }
+
+  Process {
+    id: stampReader
+    stdout: StdioCollector {
+      id: stampOut
+      waitForEnd: true
+      onStreamFinished: {
+        root.ratesStamp = String(stampOut.text || "").trim()
+        root.stampTextIn = true
+        root.stampSettle()
+      }
+    }
+    // A stamp is only ever a reason NOT to fetch. A stat that failed — no file
+    // yet, or one refused — falls through to fetching, which is the answer an
+    // absent rates file has always given.
+    onExited: function(code) { root.stampExit = code; root.stampSettle() }
   }
 
   Process {
@@ -852,7 +918,7 @@ Item {
     if (root.ratesFetched) return
     if ((root.zsettings.rates || "off") !== "daily") return
     var today = Qt.formatDate(new Date(), "yyyy-MM-dd")
-    if (root.ratesDate && root.ratesDate >= today) return
+    if (root.ratesStamp === today) return
     root.ratesFetched = true
     ratesProc.running = false
     ratesProc.running = true

@@ -95,7 +95,11 @@ with the packaged file and needs nothing from you.
 
 Refreshing it is a separate choice. Set **Exchange rates** to *refresh
 daily* in settings and Zenbu runs `qalc -e` once per session, the first
-time you open the Calc tab, when the rates on disk are older than today.
+time you open the Calc tab, unless the rates file was already written
+today. The test is when the file was last fetched rather than the date the
+ECB stamped inside it: the ECB publishes only on business days, so the date
+in the file is legitimately older than today at weekends and before the
+afternoon fix, and gating on it would download the same file repeatedly.
 That is qalculate's own updater: it fetches from the European Central Bank
 and writes qalculate's rates files in `~/.local/share/qalculate/`, which
 then take precedence over the packaged copy. The setting starts at
@@ -125,10 +129,13 @@ What Zenbu writes, and when:
   automatically.
 
 - When you have set **Exchange rates** to *refresh daily* (and only then),
-  `qalc -e` runs once per session on first opening the Calc tab, if the
-  rates on disk predate today. It is qalculate's own updater: it reaches
-  the European Central Bank for current rates and writes qalculate's rates
-  files in `~/.local/share/qalculate/`. The setting ships as *packaged*.
+  `qalc -e` runs once per session on first opening the Calc tab, unless the
+  rates file in `~/.local/share/qalculate/` was already written today. It is
+  qalculate's own updater: it reaches the European Central Bank for current
+  rates and writes qalculate's rates files in that directory. Reading that
+  file's timestamp is the only thing Zenbu does with it; the file is opened
+  without following symlinks and must be a regular file. The setting ships
+  as *packaged*.
 
 Every one of those writes is staged under an exclusively-created temporary
 name beside the destination and renamed over it in one atomic step, so an
