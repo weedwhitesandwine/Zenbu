@@ -343,7 +343,9 @@ Item {
     if (!lib) return []
     var entries = lib.sortedEntries(root.filterText)
     var out = []
-    for (var i = 0; i < entries.length && out.length < 40; i++) {
+    // No cap: the apps tab is the one list people browse rather than search,
+    // and stopping short of the end hides whole letters of the alphabet.
+    for (var i = 0; i < entries.length; i++) {
       var entry = entries[i].entry
       if (!entry) continue
       out.push({
